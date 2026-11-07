@@ -13,6 +13,7 @@ export const config = {
     database: env.DB_NAME ?? 'PO123',
     user: env.DB_USER ?? undefined,
     password: env.DB_PASSWORD ?? undefined,
+    domain: env.DB_DOMAIN || undefined,
     instanceName: env.DB_INSTANCE || undefined,
     encrypt: asBool(env.DB_ENCRYPT, false),
     trustServerCertificate: asBool(env.DB_TRUST_CERT, true),

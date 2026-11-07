@@ -1,7 +1,9 @@
 import { Router } from 'express';
 
+import { query } from './db.mjs';
 import { getPhoto, setPhoto } from './photos.mjs';
-import { getStyleDetail, getStyleList } from './service.mjs';
+import { getLatestStyle, getStyleDetail, getStyleList } from './service.mjs';
+import { SQL_DEBUG_COUNTS } from './sql.mjs';
 
 const asyncRoute = (handler) => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next);
@@ -13,6 +15,28 @@ bomRouter.get(
   '/styles',
   asyncRoute(async (_req, res) => {
     res.json(await getStyleList());
+  }),
+);
+
+bomRouter.get(
+  '/latest-style',
+  asyncRoute(async (_req, res) => {
+    const latest = await getLatestStyle();
+    if (!latest) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Chưa có báo giá PO nào trong hệ thống' },
+      });
+      return;
+    }
+    res.json(latest);
+  }),
+);
+
+bomRouter.get(
+  '/debug/counts',
+  asyncRoute(async (_req, res) => {
+    const rows = await query(SQL_DEBUG_COUNTS);
+    res.json(rows[0] ?? {});
   }),
 );
 

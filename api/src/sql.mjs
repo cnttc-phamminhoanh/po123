@@ -17,6 +17,33 @@ const STYLE_FILTER = `
       )
     )`;
 
+export const SQL_LATEST_STYLE = `
+SELECT TOP 1
+  CASE
+    WHEN c.cust_name1 LIKE '%HADDAD%' THEN LEFT(REPLACE(pn.def04, ' ', ''), 8)
+    ELSE REPLACE(pn.def04, ' ', '')
+  END AS code,
+  pn.season AS season
+FROM sal_po_costing1 pn WITH (NOLOCK)
+INNER JOIN bas_cust c WITH (NOLOCK)
+  ON c.cust_no = pn.cust_no
+WHERE pn.sheet_sta = '1'
+  AND pn.sheet_type = 'POCGGI'
+  AND NULLIF(LTRIM(RTRIM(pn.def04)), '') IS NOT NULL
+ORDER BY pn.check_date DESC, pn.sheet_no DESC
+`;
+
+export const SQL_DEBUG_COUNTS = `
+SELECT
+  (SELECT COUNT(*) FROM sal_po_costing1 WITH (NOLOCK)) AS rows_all,
+  (SELECT COUNT(*) FROM sal_po_costing1 WITH (NOLOCK) WHERE sheet_sta = '1') AS rows_open,
+  (SELECT COUNT(*) FROM sal_po_costing1 WITH (NOLOCK) WHERE sheet_type = 'POCGGI') AS rows_pocggi,
+  (SELECT COUNT(*) FROM sal_po_costing1 WITH (NOLOCK)
+    WHERE sheet_sta = '1' AND sheet_type = 'POCGGI') AS rows_both,
+  (SELECT COUNT(DISTINCT sheet_no) FROM sal_po_costing1 WITH (NOLOCK)
+    WHERE sheet_sta = '1' AND sheet_type = 'POCGGI') AS sheets_both
+`;
+
 export const SQL_STYLE_LIST = `
 SELECT
   CASE
@@ -62,6 +89,7 @@ WHERE pn.sheet_sta = '1'
   AND pn.sheet_type = 'POCGGI'
   ${STYLE_FILTER}
 GROUP BY pn.sheet_no, pn.season, LTRIM(RTRIM(pn.terms)), pn.check_date, c.cust_name1
+ORDER BY pn.sheet_no ASC
 `;
 
 /** Chi phí PO1: header + material + labor + expense của báo giá mới nhất. */
@@ -90,7 +118,7 @@ export const SQL_PO1_COST = `
     pn.def08,
     ISNULL(sg.goods_name, '') AS goods_name,
     ISNULL(t.goods_type_desc, '') AS goods_type_desc,
-    ROW_NUMBER() OVER (ORDER BY pn.check_date DESC, pn.sheet_no DESC) AS rn
+    ROW_NUMBER() OVER (ORDER BY pn.sheet_date DESC, pn.sheet_no DESC) AS rn
   FROM sal_po_costing1 pn WITH (NOLOCK)
   INNER JOIN bas_cust c WITH (NOLOCK)
     ON c.cust_no = pn.cust_no

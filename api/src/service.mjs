@@ -1,5 +1,5 @@
 import { query } from './db.mjs';
-import { SQL_PO1_COST, SQL_STYLE_CONTEXT, SQL_STYLE_LIST, SQL_STYLE_QTY } from './sql.mjs';
+import { SQL_LATEST_STYLE, SQL_PO1_COST, SQL_STYLE_CONTEXT, SQL_STYLE_LIST, SQL_STYLE_QTY } from './sql.mjs';
 
 const SIZE_GROUP_COMMON = 'COMMON-999';
 
@@ -31,32 +31,53 @@ const toDate = (value) => {
 
 const toText = (value) => (value === null || value === undefined ? '' : String(value).trim());
 
+/** goods_name thường bắt đầu bằng chính mã hàng; bỏ phần trùng để không lặp mã. */
+const cleanName = (code, rawName) => {
+  const text = toText(rawName);
+  if (!text) return code;
+  const prefix = new RegExp(`^${code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[-–—:]*\\s*`, 'i');
+  const trimmed = text.replace(prefix, '').trim();
+  return trimmed || code;
+};
+
 const moneyText = (value, digits = 2) =>
   Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '';
 
-/** Chọn season: tham số → season có check_date lớn nhất. */
-const resolveSeason = (rows, season) => {
-  if (season) return season;
-  const ordered = [...rows].sort(
-    (a, b) => String(b.check_date ?? '').localeCompare(String(a.check_date ?? '')),
-  );
-  return ordered[0]?.season ?? '';
+const checkDateValue = (row) => {
+  if (!row?.check_date) return Number.NEGATIVE_INFINITY;
+  const date = row.check_date instanceof Date ? row.check_date : new Date(row.check_date);
+  return Number.isNaN(date.getTime()) ? Number.NEGATIVE_INFINITY : date.getTime();
 };
 
-/** Chọn size group theo quy ước trong tài liệu. */
+/** Mới nhất theo check_date rồi sheet_no, giống điều kiện trong SQL chuẩn. */
+const latestByCheckDate = (rows) =>
+  [...rows].sort((a, b) => {
+    const diff = checkDateValue(b) - checkDateValue(a);
+    return diff !== 0 ? diff : String(b.sheet_no ?? '').localeCompare(String(a.sheet_no ?? ''));
+  })[0];
+
+/** Chọn season: ưu tiên tham số; nếu không có thì lấy season của phiếu mới nhất. */
+const resolveSeason = (rows, season) => {
+  if (season) return season;
+  return toText(latestByCheckDate(rows)?.season);
+};
+
+/**
+ * Chọn size group mặc định:
+ * - có cả COMMON-999 và nhóm khác → lấy terms của phiếu mới nhất;
+ * - chỉ có nhóm khác → lấy nhóm có số nhỏ nhất (NEXT-1 trước NEXT-3);
+ * - còn lại → COMMON-999.
+ */
 const resolveSizeGroup = (rows, wanted) => {
   if (wanted) return wanted;
   const terms = rows.map((row) => toText(row.terms)).filter(Boolean);
-  if (terms.length === 0) return '';
   const hasCommon = terms.includes(SIZE_GROUP_COMMON);
-  const others = terms.filter((term) => term !== SIZE_GROUP_COMMON);
-  if (hasCommon && others.length > 0) {
-    const latest = [...rows].sort(
-      (a, b) => String(b.check_date ?? '').localeCompare(String(a.check_date ?? '')),
-    )[0]?.terms;
-    return toText(latest) || others[0];
-  }
-  if (others.length > 0) return [...others].sort(compareSizeGroup)[0];
+  const others = rows.filter((row) => {
+    const term = toText(row.terms);
+    return term && term !== SIZE_GROUP_COMMON;
+  });
+  if (hasCommon && others.length > 0) return toText(latestByCheckDate(rows)?.terms);
+  if (others.length > 0) return sortSizeGroups(others.map((row) => toText(row.terms)))[0];
   return SIZE_GROUP_COMMON;
 };
 
@@ -163,6 +184,15 @@ const buildEmptyPo = (code, suffix) => ({
   sizeGroups: [],
 });
 
+export const getLatestStyle = async () => {
+  const rows = await query(SQL_LATEST_STYLE);
+  if (rows.length === 0) return null;
+  return {
+    code: toText(rows[0].code),
+    season: toText(rows[0].season),
+  };
+};
+
 export const getStyleList = async () => {
   const rows = await query(SQL_STYLE_LIST);
   const byCode = new Map();
@@ -255,21 +285,36 @@ export const getStyleDetail = async (code, seasonParam, sizeGroupParam) => {
   const gpValue = round2(orderValue - costValue);
   const priced = pos.filter((po) => po.price > 0);
 
+  const seasons = [...new Set(contextRows.map((row) => toText(row.season)).filter(Boolean))];
+  const rawRemarks = toText(cost.rem);
+  const remarks = rawRemarks ? cleanName(code, rawRemarks) : '';
+
   return {
     code,
-    name: toText(cost.goods_name) || code,
+    name: cleanName(code, cost.goods_name),
     buyer: toText(contextRows[0]?.buyer),
     season,
+    seasons,
+    latestSeason: season,
     fabric: '',
-    poDate: toDate(cost.check_date),
+    poDate: toDate(cost.sheet_date),
     version: toText(cost.ver_no),
     terms: sizeGroup,
+    remarks,
+    sampleNo: toText(cost.goods_no),
+    sampleName: toText(cost.goods_name),
     sampleType: toText(cost.goods_type_desc),
+    brand: toText(cost.brand),
     moq: cost.min_ord_qty === null || cost.min_ord_qty === undefined ? '' : toText(cost.min_ord_qty),
     firstCrd: toDate(qtyRow.first_crd),
     lastCrd: toDate(qtyRow.last_crd),
     packingSpec: toText(cost.pack_desc),
-    m3: moneyText(num(cost.pack_len) * num(cost.pack_width) * num(cost.pack_height), 3),
+    m3: moneyText(
+      Math.round(
+        num(cost.pack_len) * num(cost.pack_width) * num(cost.pack_height) * 1e8,
+      ) / 1e8,
+      3,
+    ),
     pcsPerCarton: toText(cost.pack_num),
     fxVnd: moneyText(num(cost.def03) || num(cost.usd_rate), 2),
     fxRmb: moneyText(

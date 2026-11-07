@@ -6,16 +6,27 @@ let poolPromise = null;
 
 export const getPool = () => {
   if (!poolPromise) {
+    const auth = config.db.domain
+      ? {
+          authentication: {
+            type: 'ntlm',
+            options: {
+              domain: config.db.domain,
+              userName: config.db.user,
+              password: config.db.password,
+            },
+          },
+        }
+      : { user: config.db.user, password: config.db.password };
     const pool = new sql.ConnectionPool({
       server: config.db.server,
       port: config.db.port,
       database: config.db.database,
-      user: config.db.user,
-      password: config.db.password,
       encrypt: config.db.encrypt,
       trustServerCertificate: config.db.trustServerCertificate,
       options: config.db.options,
       pool: { max: 10, min: 0, idleTimeoutMillis: 30000 },
+      ...auth,
     });
     poolPromise = pool.connect().catch((error) => {
       poolPromise = null;
