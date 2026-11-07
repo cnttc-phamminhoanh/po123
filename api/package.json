@@ -1,0 +1,17 @@
+{
+  "name": "po123-api",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "BOM / PO cost summary API — Express + SQL Server",
+  "scripts": {
+    "dev": "node --watch src/server.mjs",
+    "start": "node src/server.mjs"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "mssql": "^11.0.1"
+  }
+}

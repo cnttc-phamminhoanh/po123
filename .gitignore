@@ -1,0 +1,34 @@
+# Thư mục phụ thuộc (npm cài lại được, không commit)
+node_modules/
+
+# Kết quả build & cache
+dist/
+build/
+coverage/
+*.tsbuildinfo
+.eslintcache
+
+# Biến môi trường: giữ file mẫu, chặn file thật (có token/khóa)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Log
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Hệ điều hành
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor / IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.suo
