@@ -1,13 +1,32 @@
 import { Router } from 'express';
+import multer from 'multer';
 
+import { config } from './config.mjs';
 import { query } from './db.mjs';
-import { getPhoto, setPhoto } from './photos.mjs';
-import { getLatestStyle, getStyleDetail, getStyleList } from './service.mjs';
+import { requireAuth } from './auth.mjs';
+import { findStylePhoto, photoUrlFor, recordPhotoUpload, saveStylePhoto } from './photo-store.mjs';
+import { getLatestStyle, getStyleDetail, getStyleList, styleExists } from './service.mjs';
 import { SQL_DEBUG_COUNTS } from './sql.mjs';
 
 const asyncRoute = (handler) => (req, res, next) => {
   Promise.resolve(handler(req, res, next)).catch(next);
 };
+
+const ALLOWED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: config.photo.maxBytes, files: 1 },
+  fileFilter: (_req, file, callback) => {
+    if (ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
+      callback(null, true);
+      return;
+    }
+    const error = new Error('UNSUPPORTED_TYPE');
+    error.status = 415;
+    callback(error);
+  },
+});
 
 export const bomRouter = Router();
 
@@ -40,6 +59,41 @@ bomRouter.get(
   }),
 );
 
+bomRouter.post(
+  '/styles/:code/photo',
+  requireAuth,
+  upload.single('file'),
+  asyncRoute(async (req, res) => {
+    const code = String(req.params.code ?? '').trim();
+    if (!code || !(await styleExists(code))) {
+      res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `Không tìm thấy style ${code}` },
+      });
+      return;
+    }
+    const saved = await saveStylePhoto(code, req.file);
+    const photoUpload = await recordPhotoUpload(code, saved.fileName, req.user);
+    res.status(201).json({ ...saved, photoUpload });
+  }),
+);
+
+bomRouter.get(
+  '/styles/:code/photo',
+  asyncRoute(async (req, res) => {
+    const file = await findStylePhoto(req.params.code);
+    if (!file) {
+      res.status(404).json({
+        error: { code: 'PHOTO_NOT_FOUND', message: 'Style chưa có ảnh' },
+      });
+      return;
+    }
+    res.setHeader('Content-Type', file.contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    res.sendFile(file.fullPath);
+  }),
+);
+
 bomRouter.get(
   '/styles/:code',
   asyncRoute(async (req, res) => {
@@ -49,7 +103,7 @@ bomRouter.get(
       req.query.sizeGroup ? String(req.query.sizeGroup) : undefined,
     );
     if (detail) {
-      detail.photoUrl = detail.photoUrl || getPhoto(detail.code);
+      detail.photoUrl = await photoUrlFor(detail.code);
       res.json(detail);
       return;
     }
@@ -67,25 +121,3 @@ bomRouter.patch('/styles/:code/pos/:poNo', (_req, res) => {
     },
   });
 });
-
-bomRouter.post(
-  '/styles/photos',
-  asyncRoute(async (req, res) => {
-    const items = Array.isArray(req.body?.items) ? req.body.items : [];
-    const bound = [];
-    const unmatched = [];
-    items.forEach((item) => {
-      if (item?.styleCode && item?.photoUrl) {
-        setPhoto(item.styleCode, item.photoUrl);
-        bound.push({
-          styleCode: String(item.styleCode),
-          fileName: String(item.fileName ?? ''),
-          photoUrl: String(item.photoUrl),
-        });
-        return;
-      }
-      unmatched.push(item);
-    });
-    res.json({ bound, unmatched });
-  }),
-);

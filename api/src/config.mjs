@@ -3,10 +3,25 @@ import 'dotenv/config';
 const env = process.env;
 const asBool = (value, fallback) =>
   value === undefined ? fallback : value.toLowerCase() === 'true';
+const asPositiveNumber = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
 
 export const config = {
   port: Number(env.PORT ?? 3001),
   corsOrigin: env.CORS_ORIGIN ?? '*',
+  auth: {
+    username: String(env.AUTH_USER ?? '').trim(),
+    password: env.AUTH_PASSWORD ?? '',
+    secret: env.AUTH_SECRET || '',
+    ttlHours: asPositiveNumber(env.AUTH_TTL_HOURS, 168),
+    secureCookie: asBool(env.COOKIE_SECURE, false),
+  },
+  photo: {
+    dir: env.PHOTO_DIR || 'C:\\po123-data\\photos',
+    maxBytes: asPositiveNumber(env.PHOTO_MAX_MB, 8) * 1024 * 1024,
+  },
   db: {
     server: env.DB_SERVER ?? 'localhost',
     port: Number(env.DB_PORT ?? 1433),

@@ -3,6 +3,7 @@ import express from 'express';
 
 import { config } from './config.mjs';
 import { closePool, pingDatabase } from './db.mjs';
+import { authRouter } from './auth.mjs';
 import { bomRouter } from './routes.mjs';
 
 const app = express();
@@ -19,6 +20,7 @@ app.get('/health', async (_req, res) => {
   }
 });
 
+app.use('/api/auth', authRouter);
 app.use('/api/bom', bomRouter);
 
 app.use((_req, res) => {
@@ -26,6 +28,24 @@ app.use((_req, res) => {
 });
 
 app.use((error, _req, res, _next) => {
+  if (error?.message === 'UNSUPPORTED_TYPE') {
+    res.status(415).json({
+      error: { code: 'UNSUPPORTED_TYPE', message: 'Chỉ nhận ảnh JPG, PNG hoặc WEBP' },
+    });
+    return;
+  }
+  if (error?.code === 'LIMIT_FILE_SIZE') {
+    res.status(413).json({
+      error: { code: 'FILE_TOO_LARGE', message: 'Ảnh vượt quá 8 MB' },
+    });
+    return;
+  }
+  if (error?.status && error.status >= 400 && error.status < 500) {
+    res.status(error.status).json({
+      error: { code: 'BAD_REQUEST', message: error.message },
+    });
+    return;
+  }
   console.error('[api]', error);
   res.status(500).json({
     error: {
@@ -36,7 +56,16 @@ app.use((error, _req, res, _next) => {
 });
 
 const server = app.listen(config.port, () => {
-  console.info(`[api] BOM API nghe tại http://localhost:${config.port}`);
+  console.info(`[api] API nghe tại http://localhost:${config.port}`);
+  if (!config.auth.secret) {
+    console.warn(
+      '[auth] Chưa cấu hình AUTH_SECRET trong api/.env — đăng nhập và upload ảnh đang bị khóa.',
+    );
+  } else if (!config.auth.username || !config.auth.password) {
+    console.info(
+      '[auth] Không có AUTH_USER / AUTH_PASSWORD — API dùng các tài khoản đã có trong dbo.po_app_user.',
+    );
+  }
 });
 
 const shutdown = async () => {

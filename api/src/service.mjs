@@ -1,5 +1,13 @@
 import { query } from './db.mjs';
-import { SQL_LATEST_STYLE, SQL_PO1_COST, SQL_STYLE_CONTEXT, SQL_STYLE_LIST, SQL_STYLE_QTY } from './sql.mjs';
+import {
+  SQL_LATEST_STYLE,
+  SQL_PO1_COST,
+  SQL_STYLE_CONTEXT,
+  SQL_STYLE_EXISTS,
+  SQL_STYLE_LIST,
+  SQL_STYLE_QTY,
+} from './sql.mjs';
+import { SQL_PO2A_MATERIAL } from './po2a-material.mjs';
 
 const SIZE_GROUP_COMMON = 'COMMON-999';
 
@@ -85,6 +93,9 @@ const buildPo = (cost, qty, shippedQty, terms, code) => {
   const materialTotal = round2(num(cost.m1) + num(cost.m2) + num(cost.opa) + num(cost.m3));
   const laborCost = round2(num(cost.l_ttl));
   const otherTotal = round2(num(cost.exp));
+  const qcExpense = round2(cost.qc_exp);
+  const freightExpense = round2(cost.freight_exp);
+  const overheadExpense = round2(Math.max(0, otherTotal - qcExpense - freightExpense));
   const price = round2(cost.fob);
   const unitCost = round2(materialTotal + laborCost + otherTotal);
   const gp = round2(price - unitCost);
@@ -105,9 +116,8 @@ const buildPo = (cost, qty, shippedQty, terms, code) => {
     laborCost,
     bom: [
       { category: 'fabric', itemName: 'Fabric', amount: round2(cost.m1) },
-      { category: 'trim', itemName: 'Thread, labels & trims', amount: round2(num(cost.m2) + num(cost.opa)) },
-      { category: 'wash', itemName: 'Garment wash & dye', amount: 0 },
-      { category: 'pack', itemName: 'Polybag & carton', amount: round2(cost.m3) },
+      { category: 'trim', itemName: 'Trims', amount: round2(num(cost.m2) + num(cost.opa)) },
+      { category: 'pack', itemName: 'Packaging materials', amount: round2(cost.m3) },
     ],
     materialTotal,
     laborOps: [
@@ -127,9 +137,9 @@ const buildPo = (cost, qty, shippedQty, terms, code) => {
       { opCode: 'pack', opName: 'Packing', minutes: 0, cost: round2(cost.pac) },
     ],
     otherCosts: [
-      { category: 'overhead', label: 'Overhead', amount: otherTotal },
-      { category: 'qc', label: 'QC', amount: 0 },
-      { category: 'freight', label: 'Freight', amount: 0 },
+      { category: 'overhead', label: 'Overhead', amount: overheadExpense },
+      { category: 'qc', label: 'QC', amount: qcExpense },
+      { category: 'freight', label: 'Freight', amount: freightExpense },
     ],
     otherTotal,
     unitCost,
@@ -144,7 +154,26 @@ const buildPo = (cost, qty, shippedQty, terms, code) => {
   };
 };
 
-/** 3 cột PO2A / PO2B / PO3 chưa có dữ liệu — trả 0 để dễ nhận biết. */
+/** Gắn vật liệu tính theo logic PO2A cũ vào một cột PO đang trống. */
+const withMaterial = (po, material) => {
+  const m1 = round2(material.m1);
+  const m2 = round2(material.m2);
+  const m3 = round2(material.m3);
+  const opa = round2(material.opa);
+  return {
+    ...po,
+    bom: [
+      { category: 'fabric', itemName: 'Fabric', amount: m1 },
+      { category: 'trim', itemName: 'Trims', amount: round2(m2 + opa) },
+      { category: 'pack', itemName: 'Packaging materials', amount: m3 },
+    ],
+    materialTotal: Number.isFinite(Number(material.m_ttl))
+      ? round2(material.m_ttl)
+      : round2(m1 + m2 + m3 + opa),
+  };
+};
+
+/** Tạo cột PO2A / PO2B / PO3 ở trạng thái trống; dữ liệu dùng chung sẽ được gắn sau. */
 const buildEmptyPo = (code, suffix) => ({
   poNo: `${code}-${suffix}`,
   factory: '',
@@ -158,9 +187,8 @@ const buildEmptyPo = (code, suffix) => ({
   laborCost: 0,
   bom: [
     { category: 'fabric', itemName: 'Fabric', amount: 0 },
-    { category: 'trim', itemName: 'Thread, labels & trims', amount: 0 },
-    { category: 'wash', itemName: 'Garment wash & dye', amount: 0 },
-    { category: 'pack', itemName: 'Polybag & carton', amount: 0 },
+    { category: 'trim', itemName: 'Trims', amount: 0 },
+    { category: 'pack', itemName: 'Packaging materials', amount: 0 },
   ],
   materialTotal: 0,
   laborOps: [
@@ -191,6 +219,11 @@ export const getLatestStyle = async () => {
     code: toText(rows[0].code),
     season: toText(rows[0].season),
   };
+};
+
+export const styleExists = async (code) => {
+  const rows = await query(SQL_STYLE_EXISTS, { style: code });
+  return rows.length > 0;
 };
 
 export const getStyleList = async () => {
@@ -267,17 +300,56 @@ export const getStyleDetail = async (code, seasonParam, sizeGroupParam) => {
   if (costRows.length === 0) return null;
   const cost = costRows[0];
 
-  const qtyRows = await query(SQL_STYLE_QTY, { style: code });
+  const [qtyRows, materialRows] = await Promise.all([
+    query(SQL_STYLE_QTY, { style: code }),
+    query(SQL_PO2A_MATERIAL, {
+      p_style: code,
+      p_season: season,
+      p_size_grp: sizeGroup,
+    }),
+  ]);
+
+  // Giữ đúng tham số season/size group đang xem. Nếu SQL cũ không có dòng
+  // tương ứng thì vật liệu PO2A để 0, không tự đổi sang season khác.
+  const po2aMaterial = materialRows[0] ?? {};
+
   const qtyRow = qtyRows[0] ?? {};
   const units = num(qtyRow.units);
   const shipped = num(qtyRow.shipped);
 
   const po1 = buildPo({ ...cost, fob: num(cost.fob) }, units, shipped, sizeGroup, code);
+  const sharedOther = (po) => ({
+    ...po,
+    otherCosts: po1.otherCosts.map((line) => ({ ...line })),
+    otherTotal: po1.otherTotal,
+  });
+  /** PO2A / PO2B dùng đúng chi phí nhân công của PO1; vật tư chỉ PO2A có dữ liệu. */
+  const sharedLabor = (po) => {
+    const laborCost = po1.laborCost;
+    const laborOps = po1.laborOps.map((line) => ({ ...line }));
+    return {
+      ...po,
+      laborCost,
+      laborOps,
+      unitCost: round2(po.materialTotal + laborCost + po.otherTotal),
+    };
+  };
+  /** PO2A / PO2B lấy đơn giá FOB của PO1 và tính lại GP theo giá mới. */
+  const sharedPrice = (po) => {
+    const price = po1.price;
+    const gp = round2(price - po.unitCost);
+    return {
+      ...po,
+      price,
+      gp,
+      gpPct: price > 0 ? round2((gp / price) * 100) : 0,
+    };
+  };
   const pos = [
     po1,
-    buildEmptyPo(code, '2A'),
-    buildEmptyPo(code, '2B'),
-    buildEmptyPo(code, '3'),
+    sharedPrice(sharedLabor(sharedOther(withMaterial(buildEmptyPo(code, '2A'), po2aMaterial)))),
+    sharedPrice(sharedLabor(sharedOther(buildEmptyPo(code, '2B')))),
+    sharedOther(buildEmptyPo(code, '3')),
   ];
 
   const orderValue = round2(pos.reduce((sum, po) => sum + po.orderValue, 0));

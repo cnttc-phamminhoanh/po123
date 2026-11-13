@@ -45,6 +45,36 @@ Kiểm tra nhanh:
 | `DB_TRUST_CERT` | `true` | Bỏ qua kiểm tra chứng chỉ tự ký |
 | `PORT` | `3001` | Cổng API |
 | `CORS_ORIGIN` | `http://localhost:5174` | Origin được phép gọi API |
+| `PHOTO_DIR` | `C:\po123-data\photos` | Thư mục lưu ảnh style trên máy chạy Node |
+| `PHOTO_MAX_MB` | `8` | Dung lượng tối đa mỗi ảnh |
+| `AUTH_USER` | `admin` | Tên admin đầu tiên (chỉ dùng khi bảng tài khoản còn trống) |
+| `AUTH_PASSWORD` | `...` | Mật khẩu admin đầu tiên; đổi trong UI sau khi đăng nhập |
+| `AUTH_SECRET` | `...` | Khóa ký cookie phiên; bắt buộc đặt chuỗi ngẫu nhiên dài |
+| `AUTH_TTL_HOURS` | `168` | Thời hạn đăng nhập (giờ) |
+| `COOKIE_SECURE` | `false` | Bật `true` khi chạy HTTPS |
+
+## Đăng nhập nhiều người dùng
+
+Mọi tài khoản **đang hoạt động** đều được upload / thay ảnh. Chỉ tài khoản `role=admin` mới được quản lý tài khoản. Xem dữ liệu, đổi season/size group và xuất PDF vẫn công khai.
+
+- Tài khoản lưu trong bảng `dbo.po_app_user` của SQL Server; mật khẩu chỉ lưu hash `scrypt`.
+- Tài khoản nhân viên được tạo bằng **mã nhân viên** (`emp_no`). API kiểm tra mã trong bảng `dbo.bas_emp`, lấy `emp_name` và lưu vào tài khoản. Mã không tồn tại trả `400 EMP_NOT_FOUND`.
+- Lần đăng nhập / gọi `/api/auth/me` đầu tiên sẽ tự tạo bảng nếu chưa có. Nếu bảng trống và có `AUTH_USER` + `AUTH_PASSWORD`, API tạo admin đầu tiên từ hai biến này.
+- `POST /api/auth/login` — body `{ "username": "<emp_no hoặc admin>", "password": "..." }`; API đặt cookie phiên `HttpOnly`.
+- `GET /api/auth/me` — kiểm tra phiên hiện tại.
+- `POST /api/auth/logout` — đăng xuất.
+- `GET /api/auth/users` — danh sách tài khoản (admin).
+- `POST /api/auth/users` — tạo tài khoản, body `{ "empNo": "00005", "password", "role": "admin"|"user" }` (admin).
+- `PATCH /api/auth/users/:id` — đổi `role`, bật/tắt `active`, hoặc đặt lại `password` (admin).
+- Không thể khóa hoặc hạ quyền admin đang hoạt động cuối cùng (`409 LAST_ADMIN`).
+- Nếu thiếu `AUTH_SECRET`, API trả `503 AUTH_NOT_CONFIGURED` và upload bị khóa.
+- Tạo tài khoản nhanh bằng script: `node scripts/create-user.mjs <emp_no> <password> [admin|user]`.
+
+### Ghi lại lịch sử upload ảnh
+- Mỗi lần upload/thay ảnh style, API thêm một dòng vào bảng `dbo.po_style_photo_audit`: mã style, tên file, tài khoản upload, mã nhân viên, tên nhân viên và thời điểm upload.
+- Bảng tự tạo khi upload lần đầu; mỗi lần upload là một dòng riêng, không ghi đè lịch sử cũ.
+- Admin xem và tìm lịch sử trong menu tài khoản → **Lịch sử upload**; tìm theo mã style, người upload và khoảng ngày.
+- `GET /api/auth/photo-history?style=&uploader=&from=YYYY-MM-DD&to=YYYY-MM-DD&limit=50&offset=0` — chỉ admin.
 
 ## Endpoint
 
@@ -54,15 +84,23 @@ Base: `/api/bom`
 | --- | --- | --- |
 | GET | `/styles` | Danh sách style + season + size group |
 | GET | `/styles/:code?season=` | Chi tiết style + 4 cột PO (chỉ PO1 có số liệu) |
+| GET | `/styles/:code/photo` | Trả ảnh của style từ ổ đĩa |
+| POST | `/styles/:code/photo` | Upload ảnh (`multipart/form-data`, field `file`); **cần đăng nhập** |
 | PATCH | `/styles/:code/pos/:poNo` | Chưa mở — trả 501, không ghi vào bảng ERP |
-| POST | `/styles/photos` | Gán ảnh theo `styleCode`, lưu tạm trong RAM |
 | GET | `/health` | Kiểm tra API + kết nối DB |
+
+Base: `/api/auth`
+
+| Method | Path | Ghi chú |
+| --- | --- | --- |
+| GET | `/photo-history` | Tìm lịch sử upload (admin); lọc `style`, `uploader`, `from`, `to`, `limit`, `offset` |
 
 ## Cách lấy số liệu
 
 - **PO1** = báo giá mới nhất của style trong season/size group đang xem:
   `sal_po_costing1` (header, FOB `def06`, factory `def05`, version `ver_no`) +
   `sal_po_costing3` (vật tư) + `sal_po_costing2` (nhân công) + `sal_po_costing4` (chi phí khác).
+- **PO2A material** = tính theo logic SQL cũ: mã F của style + dòng SO hợp lệ + MRP/pur_plan/pur_order; nếu `COMMON-999` thì chia theo tổng SL SO, nhóm size khác thì chia theo BOM và số lượng từng size. Các bảng chính: `bas_goods`, `sal_order1/2`, `bas_base_code`, `mrp_mrp2`, `pur_plan2`, `pur_order1/2`, `size_grp_gi`, `bom_stru1/2`, `bas_cur_acc`. Nếu season/size group đang xem không có dòng SO tương ứng thì để 0, không tự đổi sang season khác.
 - **Style** so khớp theo khách: HADDAD so 8 ký tự đầu của `def04`, khách khác so nguyên chuỗi.
 - **Season** mặc định: bản ghi có `check_date` mới nhất.
 - **Size group** mặc định: quy ước trong tài liệu (ưu tiên bản ghi mới nhất khi có `COMMON-999`, ngược lại nhóm có số nhỏ nhất).
@@ -71,15 +109,15 @@ Base: `/api/bom`
 
 ## Quy ước hiển thị (theo yêu cầu hiện tại)
 
-1. Chỉ **PO1** có dữ liệu thật; **PO2A / PO2B / PO3 trả 0** để dễ nhận biết.
+1. **PO1** có dữ liệu thật; **PO2A** có **Materials theo logic SQL cũ**, **Labors giống PO1**, **Other Expenses giống PO1** và **giá FOB bằng PO1**; **PO2B** có **Labors giống PO1**, **Other Expenses giống PO1**, **giá FOB bằng PO1**, vật tư vẫn để 0; **PO3** chỉ có **Other Expenses giống PO1**, vật tư/nhân công/giá để 0.
 2. Bỏ **SAM**: `sam`, `efficiency`, `laborRate` trả 0, UI không còn hiện dòng SAM.
 3. Vật tư: `m1 → fabric`, `m2 (+ opa) → trim`, `m3 → pack`; `wash = 0` (dữ liệu chưa tách).
 4. Nhân công 4 công đoạn: `cut`, `sew` (gồm PRI + EMB), `fin` (gồm ETC + SOC), `pack`.
-5. Chi phí khác: toàn bộ `sal_po_costing4` gộp vào `Overhead`; `QC` và `Freight` = 0 vì chưa có bảng ánh xạ `fee_type → nhóm`.
-6. Ảnh: style thật chưa có ảnh nên ô ảnh để trống; ảnh upload chỉ lưu trong RAM, mất khi restart (chưa có bảng lưu ảnh).
+5. Chi phí khác tách 3 nhóm: **QC** (`fee_type='503'`, `CP052%`, hoặc tên có test/kiểm/QC), **Freight** (`fee_type='505'`, hoặc tên có vận chuyển/transport/freight/shipping), còn lại vào **Overhead**. Tổng `otherTotal` không đổi.
+6. Ảnh: lưu trên ổ đĩa tại `PHOTO_DIR` (mặc định `C:\po123-data\photos`), một style một ảnh; upload ảnh mới sẽ xóa ảnh cũ. Ảnh được chuẩn hóa khi upload: cắt viền thừa, thay nền sáng/đồng màu bằng xám `#F4F4F4`, đặt sản phẩm vào khung dọc 2:3 (1200 × 1800) và lưu JPG. Ảnh tồn tại qua restart, nhưng chỉ trên máy đang chạy Node — cần sao lưu thư mục này.
 
 ## Ghi chú kỹ thuật
 
-- Mỗi lần mở một style: 3 query (context, chi phí PO1, số lượng đơn hàng). Có thể gộp context + chi phí thành một batch/CTE và chạy song song khi cần tối ưu thêm.
+- Mỗi lần mở một style: 4 query (context, chi phí PO1, số lượng đơn hàng, vật liệu PO2A). Có thể gộp context + chi phí thành một batch/CTE và chạy song song khi cần tối ưu thêm.
 - Toàn bộ SQL tập trung ở `src/sql.mjs`, không rải trong route.
 - `query()` trong `src/db.mjs` là điểm duy nhất mở kết nối; thêm query mới thì thêm hàm vào `service.mjs`, giữ route mỏng.
