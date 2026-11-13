@@ -4,7 +4,10 @@ import { jsPDF } from 'jspdf';
 const PAGE_WIDTH_MM = 297;
 const PAGE_HEIGHT_MM = 420;
 const MARGIN_MM = 10;
-const JPEG_QUALITY = 0.92;
+const JPEG_QUALITY = 0.96;
+const RENDER_SCALE = 2.2;
+/** Ảnh nhỏ vẫn dùng PNG để chữ nét; ảnh lớn dùng JPEG để xuất nhanh. */
+const PNG_MAX_PIXELS = 8_000_000;
 
 export interface ExportedPdf {
   blob: Blob;
@@ -62,7 +65,7 @@ export const exportNodeToA3Pdf = async (
   try {
     canvas = await html2canvas(node, {
       backgroundColor: '#FFFFFF',
-      scale: 2,
+      scale: RENDER_SCALE,
       useCORS: true,
       allowTaint: false,
       logging: false,
@@ -95,9 +98,13 @@ export const exportNodeToA3Pdf = async (
       (canvas.width * contentHeight) / canvas.height,
     );
     const scaledHeight: number = (canvas.height * scaledWidth) / canvas.width;
+    const usePng: boolean = canvas.width * canvas.height <= PNG_MAX_PIXELS;
     pdf.addImage(
-      canvas.toDataURL('image/jpeg', JPEG_QUALITY),
-      'JPEG',
+      canvas.toDataURL(
+        usePng ? 'image/png' : 'image/jpeg',
+        usePng ? undefined : JPEG_QUALITY,
+      ),
+      usePng ? 'PNG' : 'JPEG',
       MARGIN_MM + (contentWidth - scaledWidth) / 2,
       MARGIN_MM,
       scaledWidth,

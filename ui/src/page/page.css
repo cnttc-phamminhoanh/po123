@@ -202,6 +202,7 @@
 
 .rail-btn {
   position: absolute;
+  z-index: 1;
   left: -32px;
   top: 50%;
   transform: translateY(-50%);
@@ -239,6 +240,40 @@
 
 .rail-btn svg { transition: transform 0.18s ease; }
 .rail-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+
+.po-groups { position: relative; }
+
+/* Đường nối mảnh giữa nút mở tất cả và 3 nút mở từng nhóm. */
+.rail-line {
+  position: absolute;
+  z-index: 0;
+  left: -21px;
+  width: 1px;
+  background: #E4E4E4;
+  pointer-events: none;
+}
+
+/* Nút mở/đóng đồng thời materials, labors và other expenses. */
+.rail-master {
+  top: 0;
+  transform: none;
+  border-color: #C9DFFF;
+  color: #2E88FF;
+  background: #FFFFFF;
+}
+
+.rail-master:hover {
+  border-color: #9FC4FF;
+  background: #F2F7FF;
+  color: #1B78F0;
+}
+
+.rail-master[aria-expanded="true"] {
+  border-color: #2E88FF;
+  background: #2E88FF;
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(46, 136, 255, 0.32);
+}
 
 @media (prefers-reduced-motion: reduce) {
   .rail-btn svg { transition: none; }
@@ -571,6 +606,14 @@
     margin-left: auto;
     margin-right: auto;
   }
+
+  /* Khi xuất PDF, bỏ giới hạn 1400px để tiêu đề, dòng mô tả và card cùng mép trái. */
+  .po-app.is-exporting .head-top,
+  .po-app.is-exporting .summary-wrap {
+    max-width: none;
+    margin-left: 0;
+    margin-right: 0;
+  }
 }
 
 @media (max-width: 760px) {
@@ -672,18 +715,53 @@
 
 .meta-card--photo {
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   background: #F4F4F4;
   height: 100%;
   min-height: 0;
 }
 
-.meta-card--photo img {
+.meta-card--photo--zoom {
+  cursor: zoom-in;
+}
+
+.meta-card--photo:hover {
+  z-index: 6;
+}
+
+.meta-card--photo > img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain;
   object-position: center;
   display: block;
+  background: #F4F4F4;
+  border-radius: 12px;
+  cursor: zoom-in;
+}
+
+.photo-lens {
+  position: absolute;
+  z-index: 2;
+  width: 132px;
+  height: 132px;
+  overflow: hidden;
+  border: 2px solid rgba(255, 255, 255, 0.96);
+  border-radius: 50%;
+  background: #F4F4F4;
+  box-shadow: 0 10px 28px rgba(7, 59, 76, 0.25);
+  pointer-events: none;
+}
+
+.photo-lens-image {
+  position: absolute;
+  max-width: none;
+  object-fit: contain;
+  object-position: center;
+  background: #F4F4F4;
+  transform-origin: 0 0;
 }
 
 .photo-empty {
@@ -724,6 +802,7 @@
 
 .photo-action {
   position: absolute;
+  z-index: 3;
   top: 7px;
   right: 7px;
   display: grid;
@@ -770,6 +849,10 @@
 /* ---------- dialogs ---------- */
 
 .po-dialog {
+  --blue: #2E88FF;
+  --ink: #1F1F1F;
+  --ink-2: #333333;
+  --muted: #8C8C8C;
   width: min(720px, 92vw);
   max-width: min(720px, 92vw);
   gap: 0;
@@ -786,6 +869,31 @@
 .po-dialog--wide {
   width: min(880px, 94vw);
   max-width: min(880px, 94vw);
+}
+
+/* Dialog upload: footer luôn nằm trong màn hình, phần thân tự cuộn. */
+[data-slot="dialog-content"].po-dialog--upload {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+}
+
+.po-dialog--upload .po-dialog-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  overflow: auto;
+}
+
+.po-dialog--upload .po-dialog-foot {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid #F0F0F0;
+  background: #FFFFFF;
 }
 
 .po-dialog-head {
@@ -922,8 +1030,8 @@
 .po-btn:hover { background: #F7F7F7; }
 
 .po-btn--primary {
-  border-color: var(--blue);
-  background: var(--blue);
+  border-color: var(--blue, #2E88FF);
+  background: var(--blue, #2E88FF);
   color: #FFFFFF;
 }
 
@@ -1007,6 +1115,334 @@
 [data-slot="dialog-content"].po-dialog--wide {
   width: min(880px, 94vw);
   max-width: min(880px, 94vw);
+}
+
+[data-slot="dialog-content"].po-dialog--login {
+  width: min(400px, 92vw);
+  max-width: min(400px, 92vw);
+}
+
+.login-form {
+  display: grid;
+  gap: 12px;
+  padding: 18px 20px 20px;
+}
+
+.login-field {
+  display: grid;
+  gap: 5px;
+  font-size: 11.5px;
+  color: #66757c;
+}
+
+.login-input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid #DFE6E9;
+  border-radius: 7px;
+  background: #FFFFFF;
+  color: #073B4C;
+  font-size: 13px;
+  outline: none;
+}
+
+.login-input:focus {
+  border-color: #2E88FF;
+  box-shadow: 0 0 0 2px rgba(46, 136, 255, 0.14);
+}
+
+.login-hint {
+  margin: 0;
+  color: #8C8C8C;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.login-error {
+  margin: 0;
+  color: #D92D20;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.login-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+[data-slot="dialog-content"].po-dialog--users {
+  width: min(680px, 94vw);
+  max-width: min(680px, 94vw);
+}
+
+.user-body {
+  display: grid;
+  gap: 14px;
+  max-height: 78vh;
+  padding: 16px 20px 20px;
+  overflow: auto;
+}
+
+.user-create {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid #EEF2F4;
+  border-radius: 9px;
+  background: #FAFCFC;
+}
+
+.user-create-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #073B4C;
+}
+
+.user-create-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-create-row .login-input {
+  flex: 1 1 140px;
+  min-width: 120px;
+}
+
+.user-role-select {
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid #DFE6E9;
+  border-radius: 7px;
+  background: #FFFFFF;
+  color: #073B4C;
+  font-size: 12px;
+  outline: none;
+}
+
+.user-list {
+  display: grid;
+  gap: 8px;
+}
+
+.user-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #EEF2F4;
+  border-radius: 9px;
+}
+
+.user-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.user-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #073B4C;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.user-badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #EAF3FF;
+  color: #2E88FF;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.user-state {
+  color: #8C8C8C;
+  font-size: 11.5px;
+}
+
+.user-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-reset {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------- upload history ---------- */
+
+.history-body {
+  display: grid;
+  gap: 12px;
+  max-height: 78vh;
+  padding: 16px 20px 20px;
+  overflow: auto;
+}
+
+.history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #EEF2F4;
+  border-radius: 9px;
+  background: #FAFCFC;
+}
+
+.history-filters .login-input {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.history-date {
+  flex: 0 1 140px;
+  padding: 0 8px;
+}
+
+.history-search {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 34px;
+  white-space: nowrap;
+}
+
+.history-total {
+  margin: 0;
+  color: #7D8C93;
+  font-size: 11.5px;
+}
+
+.history-list {
+  display: grid;
+  border: 1px solid #EEF2F4;
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: 118px 105px minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 9px 12px;
+  border-top: 1px solid #F1F4F5;
+  color: #073B4C;
+  font-size: 12px;
+}
+
+.history-row:first-child {
+  border-top: 0;
+}
+
+.history-row--head {
+  background: #F7FAFA;
+  color: #7D8C93;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.history-time {
+  color: #66757C;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.history-style-code {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-user {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.history-user-name,
+.history-user-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-user-name {
+  font-weight: 500;
+}
+
+.history-user-code {
+  color: #8C9BA1;
+  font-size: 10.5px;
+}
+
+.history-file {
+  overflow: hidden;
+  color: #66757C;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-more {
+  display: flex;
+  justify-content: center;
+}
+
+@media (max-width: 900px) {
+  .history-filters .login-input {
+    flex: 1 1 calc(50% - 4px);
+  }
+
+  .history-date {
+    flex: 1 1 calc(50% - 4px);
+  }
+
+  .history-search {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 720px) {
+  .history-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .history-row--head {
+    display: none;
+  }
+
+  .history-time,
+  .history-file {
+    grid-column: 1 / -1;
+  }
+}
+
+.user-reset .login-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.user-empty {
+  padding: 18px;
+  color: #8C8C8C;
+  text-align: center;
+  font-size: 12px;
 }
 
 [data-slot="select-trigger"].style-input {
@@ -1099,6 +1535,120 @@
 
 .po-app .btn-export:hover { background: #F7F7F7; }
 
+.po-app .btn-login {
+  border-color: #2E88FF;
+  background: #2E88FF;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.po-app .btn-login:hover {
+  border-color: #1B78F0;
+  background: #1B78F0;
+  color: #FFFFFF;
+}
+
+.po-app .btn-login:disabled {
+  border-color: #9DC6FF;
+  background: #9DC6FF;
+  color: #FFFFFF;
+}
+
+.user-menu-wrap {
+  position: relative;
+  margin-left: 2px;
+}
+
+.user-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.user-menu-trigger:hover {
+  box-shadow: 0 0 0 3px #EDF4F5;
+}
+
+.user-menu-trigger:focus-visible {
+  outline: 2px solid #073B4C;
+  outline-offset: 2px;
+}
+
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: #073B4C;
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  box-shadow: 0 2px 6px rgba(7, 59, 76, 0.18);
+}
+
+.user-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 60;
+  display: grid;
+  gap: 2px;
+  width: 220px;
+  padding: 6px;
+  border: 1px solid #E3E9EC;
+  border-radius: 10px;
+  background: #FFFFFF;
+  box-shadow: 0 12px 28px rgba(7, 59, 76, 0.14);
+}
+
+.user-menu-head {
+  padding: 8px 9px 9px;
+  border-bottom: 1px solid #EEF2F4;
+  margin-bottom: 3px;
+}
+
+.user-menu-name {
+  overflow: hidden;
+  color: #073B4C;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-menu-sub {
+  margin-top: 2px;
+  color: #708090;
+  font-size: 11px;
+}
+
+.user-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 9px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #073B4C;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.user-menu-item:hover { background: #F3F7F8; }
+
 .upload-input {
   position: absolute;
   width: 1px;
@@ -1176,6 +1726,21 @@
 
 .upload-meta { font-size: 11px; color: #8C8C8C; }
 
+.upload-code-input {
+  width: 150px;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid #E4E4E4;
+  border-radius: 6px;
+  background: #FFFFFF;
+  color: #073B4C;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.upload-code-input:focus-visible { outline: 2px solid var(--blue); outline-offset: 1px; }
+
 .upload-status {
   flex: 0 0 auto;
   max-width: 45%;
@@ -1205,9 +1770,22 @@
 .po-app.is-exporting .head-actions,
 .po-app.is-exporting .filterbar,
 .po-app.is-exporting .size-bar,
-.po-app.is-exporting .rail-btn { display: none !important; }
+.po-app.is-exporting .rail-btn,
+.po-app.is-exporting .rail-line { display: none !important; }
 
-.po-app.is-exporting .head { padding: 0 0 8px; }
+.po-app.is-exporting .head {
+  padding: 0 0 20px;
+  text-align: left;
+}
+
+.po-app.is-exporting .head-top {
+  justify-content: flex-start;
+}
+
+.po-app.is-exporting .head h1 {
+  text-align: left;
+  margin-left: 0;
+}
 
 .po-app.is-exporting main { padding: 0; }
 
@@ -1215,14 +1793,16 @@
 
 .po-app.is-exporting .po-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  margin-top: 8px;
+  margin-top: 16px;
 }
 
 .po-app.is-exporting .print-meta {
   display: block;
-  margin-top: 2px;
+  margin-top: 6px;
+  padding-left: 4px;
   font-size: 12px;
   color: #555555;
+  text-align: left;
 }
 
 @media print {

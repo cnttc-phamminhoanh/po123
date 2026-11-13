@@ -1,14 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
-  BindStylePhotosResponse,
   LatestStyle,
   PoCostDetail,
   StyleDetail,
-  StylePhotoInput,
   UpdatePoCostRequest,
 } from '../types';
+import { ApiError } from '../lib/http';
 import {
-  bindStylePhotos,
   fetchLatestStyle,
   fetchStyle,
   patchPoCost,
@@ -19,12 +17,18 @@ export const latestStyleKey = ['bom', 'latest-style'] as const;
 export const styleDetailKey = (code: string, season: string, sizeGroup: string) =>
   ['bom', 'style', code, season, sizeGroup] as const;
 
+/** Lỗi mạng / 5xx lúc API vừa khởi động thì thử lại; lỗi 4xx thì dừng ngay. */
+const retryTransient = (failureCount: number, error: unknown): boolean => {
+  if (failureCount >= 3) return false;
+  return !(error instanceof ApiError) || error.status >= 500;
+};
+
 /** Mã hàng mới nhất — dùng làm giá trị mở màn, không tải cả danh sách. */
 export const useLatestStyle = () =>
   useQuery<LatestStyle>({
     queryKey: latestStyleKey,
     queryFn: fetchLatestStyle,
-    retry: false,
+    retry: retryTransient,
     staleTime: Infinity,
   });
 
@@ -35,24 +39,8 @@ export const useStyleDetail = (code: string, season: string, sizeGroup: string) 
     enabled: Boolean(code),
     // Giữ dữ liệu đang xem trong lúc tải style/mùa mới để tránh nháy trắng.
     placeholderData: (previousData) => previousData,
-    retry: false,
+    retry: retryTransient,
   });
-
-export const useBindStylePhotos = () => {
-  const queryClient = useQueryClient();
-  return useMutation<BindStylePhotosResponse, unknown, StylePhotoInput[]>({
-    mutationFn: (items: StylePhotoInput[]) => bindStylePhotos(items),
-    retry: false,
-    onSuccess: (result: BindStylePhotosResponse) => {
-      void queryClient.invalidateQueries({ queryKey: styleListKey });
-      result.bound.forEach((binding: { styleCode: string }) => {
-        void queryClient.invalidateQueries({
-          queryKey: ['bom', 'style', binding.styleCode],
-        });
-      });
-    },
-  });
-};
 
 interface UpdatePoCostVars {
   poNo: string;

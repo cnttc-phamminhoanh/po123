@@ -1,20 +1,18 @@
 /* 前后端共享的类型写在这里 */
 
-export const BOM_CATEGORIES = ['fabric', 'trim', 'wash', 'pack'] as const;
+export const BOM_CATEGORIES = ['fabric', 'trim', 'pack'] as const;
 export type BomCategory = (typeof BOM_CATEGORIES)[number];
 export const isBomCategory = (v: string): v is BomCategory =>
   (BOM_CATEGORIES as readonly string[]).includes(v);
 export const BOM_CATEGORY_LABELS: Record<BomCategory, string> = {
   fabric: 'Fabric',
-  trim: 'Trim',
-  wash: 'Wash & dye',
-  pack: 'Packaging',
+  trim: 'Trims',
+  pack: 'Packaging materials',
 };
 export const BOM_CATEGORY_DEFAULT_ITEMS: Record<BomCategory, string> = {
   fabric: 'Fabric',
-  trim: 'Thread, labels & trims',
-  wash: 'Garment wash & dye',
-  pack: 'Polybag & carton',
+  trim: 'Trims',
+  pack: 'Packaging materials',
 };
 
 export const LABOR_OP_CODES = ['cut', 'sew', 'fin', 'pack'] as const;
@@ -257,25 +255,3 @@ export interface CreatePoRequest {
   otherCosts?: OtherCostInput[];
 }
 
-/** 已上传图片与样式的关联项：fileName 为上传时的原始文件名，styleCode 由文件名（去扩展名）匹配得到 */
-export interface StylePhotoInput {
-  styleCode: string;
-  fileName: string;
-  photoUrl: string;
-}
-
-/** 关联成功的图片 */
-export interface StylePhotoBinding {
-  styleCode: string;
-  fileName: string;
-  photoUrl: string;
-}
-
-export interface BindStylePhotosRequest {
-  items: StylePhotoInput[];
-}
-
-export interface BindStylePhotosResponse {
-  bound: StylePhotoBinding[];
-  unmatched: StylePhotoInput[];
-}

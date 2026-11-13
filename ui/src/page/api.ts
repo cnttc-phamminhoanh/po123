@@ -1,9 +1,7 @@
 import type {
-  BindStylePhotosResponse,
   LatestStyle,
   PoCostDetail,
   StyleDetail,
-  StylePhotoInput,
   UpdatePoCostRequest,
 } from '../types';
 import { apiRequest } from '../lib/http';
@@ -42,20 +40,6 @@ export const fetchStyle = async (
     );
   } catch (error) {
     logger.error('Failed to load style detail', error);
-    throw error;
-  }
-};
-
-export const bindStylePhotos = async (
-  items: StylePhotoInput[],
-): Promise<BindStylePhotosResponse> => {
-  try {
-    return await apiRequest<BindStylePhotosResponse>(`${baseUrl}/styles/photos`, {
-      method: 'POST',
-      body: { items },
-    });
-  } catch (error) {
-    logger.error('Failed to bind style photos', error);
     throw error;
   }
 };

@@ -1,5 +1,6 @@
-import type { CSSProperties, ReactNode } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode, Ref } from 'react';
+import { ChevronDown, ChevronsDown } from 'lucide-react';
 import type { BomCategory, PoCostDetail } from '../../types';
 import {
   GROUP_NAMES,
@@ -17,13 +18,14 @@ import GpIcon from './GpIcon';
 import MiniChart from './MiniChart';
 import type { MiniChartItem } from './MiniChart';
 import { useT } from '../../i18n';
-import { money, pct1, round2 } from '../utils/format';
+import { money, pct1 } from '../utils/format';
 
 interface PoColumnProps {
   po: PoCostDetail;
   index: number;
   openGroups: Record<CostGroup, boolean>;
   onToggleGroup: (group: CostGroup) => void;
+  onToggleAllGroups: () => void;
 }
 
 interface GroupBlockProps {
@@ -34,6 +36,8 @@ interface GroupBlockProps {
   lead: boolean;
   onToggle: () => void;
   children: ReactNode;
+  railRef?: Ref<HTMLButtonElement>;
+  master?: ReactNode;
 }
 
 const GroupBlock = ({
@@ -44,6 +48,8 @@ const GroupBlock = ({
   lead,
   onToggle,
   children,
+  railRef,
+  master,
 }: GroupBlockProps) => {
   const t = useT();
   return (
@@ -51,6 +57,7 @@ const GroupBlock = ({
       <div className="band">
         {lead ? (
           <button
+            ref={railRef}
             type="button"
             className="rail-btn"
             aria-expanded={open}
@@ -61,6 +68,7 @@ const GroupBlock = ({
             <ChevronDown size={12} />
           </button>
         ) : null}
+        {master}
         <span className="band-label">{label}</span>
         <span className="band-value">{money(bandValue)}</span>
       </div>
@@ -74,7 +82,7 @@ const GroupBlock = ({
 const matCellValue = (po: PoCostDetail, category: BomCategory): number => {
   if (category === 'fabric') return bomAmount(po, 'fabric');
   if (category === 'pack') return bomAmount(po, 'pack');
-  return round2(bomAmount(po, 'trim') + bomAmount(po, 'wash'));
+  return bomAmount(po, 'trim');
 };
 
 const MatSumRow = ({ po }: { po: PoCostDetail }) => {
@@ -95,16 +103,64 @@ const MatSumRow = ({ po }: { po: PoCostDetail }) => {
   );
 };
 
-const PRICE_BASIS_OWNER = 'PO1';
+const PRICE_BASIS_TITLES = [
+  'PO1 FOB unit price',
+  'PO1 FOB unit price',
+  'PO1 FOB unit price',
+  'PO3 Avg SO unit price',
+];
 
-const priceTitle = (po: PoCostDetail): string => {
-  const owner: string = /fob/i.test(po.priceLabel) ? PRICE_BASIS_OWNER : po.poNo;
-  return `${owner} ${po.priceLabel}`;
-};
+const TOTAL_COST_TITLES = ['PO1', 'PO2A', 'PO2B', 'PO3'];
 
-const PoColumn = ({ po, index, openGroups, onToggleGroup }: PoColumnProps) => {
+const PoColumn = ({
+  po,
+  index,
+  openGroups,
+  onToggleGroup,
+  onToggleAllGroups,
+}: PoColumnProps) => {
   const t = useT();
   const palette: PoPalette = paletteOf(po.poNo, index);
+  const groupsRef = useRef<HTMLDivElement>(null);
+  const masterRef = useRef<HTMLButtonElement>(null);
+  const lastRailRef = useRef<HTMLButtonElement>(null);
+  const [railLine, setRailLine] = useState({ top: 0, height: 0 });
+  const allGroupsOpen =
+    openGroups.materials && openGroups.labors && openGroups.others;
+
+  useLayoutEffect(() => {
+    if (index !== 0) return;
+
+    const measure = () => {
+      const groups = groupsRef.current;
+      const master = masterRef.current;
+      const last = lastRailRef.current;
+      if (!groups || !master || !last) return;
+
+      const groupsRect = groups.getBoundingClientRect();
+      const masterRect = master.getBoundingClientRect();
+      const lastRect = last.getBoundingClientRect();
+      const top = masterRect.top - groupsRect.top + masterRect.height / 2;
+      const height =
+        lastRect.top - masterRect.top + (lastRect.height - masterRect.height) / 2;
+
+      setRailLine((prev) =>
+        Math.abs(prev.top - top) < 0.5 && Math.abs(prev.height - height) < 0.5
+          ? prev
+          : { top, height },
+      );
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (groupsRef.current) observer.observe(groupsRef.current);
+    window.addEventListener('resize', measure);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [index, openGroups]);
 
   const materialItems: MiniChartItem[] = MATERIAL_SERIES.map((series) => ({
     label: t(series.labelKey),
@@ -129,6 +185,23 @@ const PoColumn = ({ po, index, openGroups, onToggleGroup }: PoColumnProps) => {
     '--cs': palette.strong,
     '--ct': palette.tint,
   } as CSSProperties;
+
+  const masterButton =
+    index === 0 ? (
+      <button
+        ref={masterRef}
+        type="button"
+        className="rail-btn rail-master"
+        aria-expanded={allGroupsOpen}
+        aria-label={
+          allGroupsOpen ? t('collapseAllDetails') : t('expandAllDetails')
+        }
+        title={allGroupsOpen ? t('collapseAllDetails') : t('expandAllDetails')}
+        onClick={onToggleAllGroups}
+      >
+        <ChevronsDown size={13} />
+      </button>
+    ) : null;
 
   return (
     <article className="po" style={vars}>
@@ -155,66 +228,78 @@ const PoColumn = ({ po, index, openGroups, onToggleGroup }: PoColumnProps) => {
 
       <div className="po-prices">
         <div className="price-cell">
-          <span>{priceTitle(po)}</span>
+          <span>{PRICE_BASIS_TITLES[index] ?? `${po.poNo} ${po.priceLabel}`}</span>
           <strong>{money(po.price)}</strong>
         </div>
         <div className="price-cell price-cell--alt">
-          <span>{t('totalCost', { poNo: po.poNo })}</span>
+          <span>{t('totalCost', { poNo: TOTAL_COST_TITLES[index] ?? po.poNo })}</span>
           <strong>{money(po.unitCost)}</strong>
         </div>
       </div>
 
-      <GroupBlock
-        group="materials"
-        label={t('bandTotalMaterials')}
-        bandValue={po.materialTotal}
-        open={openGroups.materials}
-        lead={index === 0}
-        onToggle={() => onToggleGroup('materials')}
-      >
-        <MiniChart
-          items={materialItems}
-          footLeft={t('perUnitUsd')}
-          footRight={t('ofCost', {
-            pct: pct1(po.unitCost > 0 ? (po.materialTotal / po.unitCost) * 100 : 0),
-          })}
-          lead={<MatSumRow po={po} />}
-        />
-      </GroupBlock>
+      <div className="po-groups" ref={groupsRef}>
+        {index === 0 ? (
+          <div
+            className="rail-line"
+            aria-hidden="true"
+            style={{ top: railLine.top, height: railLine.height }}
+          />
+        ) : null}
 
-      <GroupBlock
-        group="labors"
-        label={t('bandTotalLabors')}
-        bandValue={po.laborCost}
-        open={openGroups.labors}
-        lead={index === 0}
-        onToggle={() => onToggleGroup('labors')}
-      >
-        <MiniChart
-          items={laborItems}
-          footLeft={t('perUnitUsd')}
-          footRight={t('ofCost', {
-            pct: pct1(po.unitCost > 0 ? (po.laborCost / po.unitCost) * 100 : 0),
-          })}
-        />
-      </GroupBlock>
+        <GroupBlock
+          group="materials"
+          label={t('bandTotalMaterials')}
+          bandValue={po.materialTotal}
+          open={openGroups.materials}
+          lead={index === 0}
+          onToggle={() => onToggleGroup('materials')}
+          master={masterButton}
+        >
+          <MiniChart
+            items={materialItems}
+            footLeft={t('perUnitUsd')}
+            footRight={t('ofCost', {
+              pct: pct1(po.unitCost > 0 ? (po.materialTotal / po.unitCost) * 100 : 0),
+            })}
+            lead={<MatSumRow po={po} />}
+          />
+        </GroupBlock>
 
-      <GroupBlock
-        group="others"
-        label={t('bandOtherExpenses')}
-        bandValue={po.otherTotal}
-        open={openGroups.others}
-        lead={index === 0}
-        onToggle={() => onToggleGroup('others')}
-      >
-        <MiniChart
-          items={otherItems}
-          footLeft={t('perUnitUsd')}
-          footRight={t('ofCost', {
-            pct: pct1(po.unitCost > 0 ? (po.otherTotal / po.unitCost) * 100 : 0),
-          })}
-        />
-      </GroupBlock>
+        <GroupBlock
+          group="labors"
+          label={t('bandTotalLabors')}
+          bandValue={po.laborCost}
+          open={openGroups.labors}
+          lead={index === 0}
+          onToggle={() => onToggleGroup('labors')}
+        >
+          <MiniChart
+            items={laborItems}
+            footLeft={t('perUnitUsd')}
+            footRight={t('ofCost', {
+              pct: pct1(po.unitCost > 0 ? (po.laborCost / po.unitCost) * 100 : 0),
+            })}
+          />
+        </GroupBlock>
+
+        <GroupBlock
+          group="others"
+          label={t('bandOtherExpenses')}
+          bandValue={po.otherTotal}
+          open={openGroups.others}
+          lead={index === 0}
+          onToggle={() => onToggleGroup('others')}
+          railRef={lastRailRef}
+        >
+          <MiniChart
+            items={otherItems}
+            footLeft={t('perUnitUsd')}
+            footRight={t('ofCost', {
+              pct: pct1(po.unitCost > 0 ? (po.otherTotal / po.unitCost) * 100 : 0),
+            })}
+          />
+        </GroupBlock>
+      </div>
     </article>
   );
 };

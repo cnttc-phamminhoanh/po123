@@ -1,23 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { logger } from '../../lib/logger';
-import { isUploadConfigured, uploadPhoto } from '../../lib/upload';
+import { ApiError } from '../../lib/http';
+import { uploadStylePhoto } from '../../lib/upload';
 import { ImageUp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from '../../ui/dialog';
-import type {
-  BindStylePhotosResponse,
-  StylePhotoInput,
-} from '../../types';
-import { useBindStylePhotos } from '../hooks';
 import { useT } from '../../i18n';
 import type { TKey } from '../../i18n';
 import { errorMessage, storageErrorText } from '../utils/error';
-import { matchStyle } from '../utils/photo';
+import { matchStyle, styleCodeFromFileName } from '../utils/photo';
 import type { StyleRef } from '../utils/photo';
 
 type TaskStatus = 'pending' | 'uploading' | 'done' | 'error';
@@ -35,6 +32,8 @@ interface UploadPhotosDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   styles: StyleRef[];
+  bulk?: boolean;
+  onAuthRequired?: () => void;
 }
 
 type Translate = (key: TKey, vars?: Record<string, string | number>) => string;
@@ -44,15 +43,21 @@ const buildTask = (
   index: number,
   styles: StyleRef[],
   t: Translate,
+  bulk: boolean,
 ): PhotoTask => {
-  const matched: StyleRef | undefined = matchStyle(file.name, styles);
+  // Khi mở từ thẻ ảnh của một style, chỉ có một style trong danh sách:
+  // ảnh người dùng chọn được gán thẳng vào style đó, không phụ thuộc tên file.
+  // Khi upload hàng loạt, mã style được đọc từ tên file (bỏ phần mở rộng).
+  const matched: StyleRef | undefined =
+    matchStyle(file.name, styles) ?? (styles.length === 1 ? styles[0] : undefined);
+  const styleCode: string = matched?.code ?? (bulk ? styleCodeFromFileName(file.name).toUpperCase() : '');
   return {
     id: `${file.name}-${file.size}-${index}`,
     file,
-    styleCode: matched?.code ?? '',
+    styleCode,
     styleName: matched?.name ?? '',
     status: 'pending',
-    message: matched ? t('willLink') : t('noStyleName'),
+    message: styleCode ? t('willLink') : t('noStyleName'),
   };
 };
 
@@ -60,12 +65,15 @@ const UploadPhotosDialog = ({
   open,
   onOpenChange,
   styles,
+  bulk = false,
+  onAuthRequired,
 }: UploadPhotosDialogProps) => {
   const t = useT();
   const inputRef = useRef<HTMLInputElement>(null);
   const [tasks, setTasks] = useState<PhotoTask[]>([]);
   const [busy, setBusy] = useState<boolean>(false);
-  const bindPhotos = useBindStylePhotos();
+  const queryClient = useQueryClient();
+  const singleStyle = styles.length === 1;
 
   useEffect(() => {
     if (!open) {
@@ -78,12 +86,13 @@ const UploadPhotosDialog = ({
   const appendFiles = (fileList: FileList | null) => {
     if (!fileList || fileList.length === 0) return;
     const files: File[] = Array.from(fileList);
-    setTasks((prev: PhotoTask[]) => [
-      ...prev,
-      ...files.map((file: File, index: number) =>
-        buildTask(file, prev.length + index, styles, t),
-      ),
-    ]);
+    setTasks((prev: PhotoTask[]) => {
+      const next: PhotoTask[] = files.map((file: File, index: number) =>
+        buildTask(file, prev.length + index, styles, t, bulk),
+      );
+      // Một style chỉ có một ảnh: chọn ảnh mới sẽ thay ảnh đang chờ.
+      return singleStyle ? next.slice(0, 1) : [...prev, ...next];
+    });
   };
 
   const patchTask = (id: string, patch: Partial<PhotoTask>) => {
@@ -94,20 +103,23 @@ const UploadPhotosDialog = ({
     );
   };
 
+  const updateTaskCode = (id: string, value: string) => {
+    const styleCode: string = value.trim().toUpperCase();
+    patchTask(id, {
+      styleCode,
+      styleName: '',
+      message: styleCode ? t('willLink') : t('noStyleName'),
+    });
+  };
+
   const matchedCount: number = tasks.filter(
     (task: PhotoTask) => task.status === 'done' || Boolean(task.styleCode),
   ).length;
 
   const handleUpload = async () => {
     if (busy || tasks.length === 0) return;
-    if (!isUploadConfigured()) {
-      toast.error(t('uploadNotConfigured'), {
-        description: t('uploadNotConfiguredDesc'),
-      });
-      return;
-    }
     setBusy(true);
-    const payload: StylePhotoInput[] = [];
+    const uploaded = new Set<string>();
     try {
       for (const task of tasks) {
         if (task.status === 'done') continue;
@@ -120,15 +132,15 @@ const UploadPhotosDialog = ({
         }
         patchTask(task.id, { status: 'uploading', message: t('uploading') });
         try {
-          const photoUrl: string = await uploadPhoto(task.file);
-          payload.push({
-            styleCode: task.styleCode,
-            fileName: task.file.name,
-            photoUrl,
-          });
-          patchTask(task.id, { status: 'pending', message: t('uploaded') });
+          await uploadStylePhoto(task.styleCode, task.file);
+          uploaded.add(task.styleCode);
+          patchTask(task.id, { status: 'done', message: t('linkedToStyle') });
         } catch (error) {
           logger.error('上传样式图片失败', error);
+          if (error instanceof ApiError && error.status === 401) {
+            onAuthRequired?.();
+            return;
+          }
           patchTask(task.id, {
             status: 'error',
             message: storageErrorText(error, t('uploadFailed')),
@@ -136,30 +148,18 @@ const UploadPhotosDialog = ({
         }
       }
 
-      if (payload.length > 0) {
-        const result: BindStylePhotosResponse =
-          await bindPhotos.mutateAsync(payload);
-        setTasks((prev: PhotoTask[]) =>
-          prev.map((task: PhotoTask) => {
-            const linked = result.bound.some(
-              (binding: { styleCode: string }) =>
-                binding.styleCode === task.styleCode,
-            );
-            return linked && task.status !== 'error'
-              ? { ...task, status: 'done', message: t('linkedToStyle') }
-              : task;
-          }),
-        );
-        if (result.unmatched.length > 0) {
-          toast.error(t('nSkipped', { n: result.unmatched.length }));
-        }
-        if (result.bound.length > 0) {
-          toast.success(t('nLinked', { n: result.bound.length }));
-        }
+      uploaded.forEach((styleCode: string) => {
+        void queryClient.invalidateQueries({
+          queryKey: ['bom', 'style', styleCode],
+        });
+      });
+
+      if (uploaded.size > 0) {
+        toast.success(t('nLinked', { n: uploaded.size }));
       }
     } catch (error) {
-      logger.error('关联样式图片失败', error);
-      toast.error(errorMessage(error, t('linkingFailed')));
+      logger.error('上传样式图片失败', error);
+      toast.error(errorMessage(error, t('uploadFailed')));
     } finally {
       setBusy(false);
     }
@@ -167,10 +167,10 @@ const UploadPhotosDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="po-dialog po-dialog--wide" showCloseButton={false}>
+      <DialogContent className="po-dialog po-dialog--wide po-dialog--upload" showCloseButton={false}>
         <DialogTitle asChild>
           <div className="po-dialog-head">
-            <h2>{t('uploadPhotos')}</h2>
+            <h2>{bulk ? t('bulkUpload') : t('uploadPhotos')}</h2>
             <button
               type="button"
               className="po-dialog-x"
@@ -189,15 +189,19 @@ const UploadPhotosDialog = ({
           <section className="spec-group">
             <h3>{t('howLinkingWorks')}</h3>
             <p className="upload-hint">
-              {t('uploadHint', { code: '1R303710.jpg', code2: '1R303710' })}
+              {bulk
+                ? t('bulkUploadHint')
+                : t('uploadHint', { code: '1R303710.jpg', code2: '1R303710' })}
             </p>
-            <div className="upload-codes">
-              {styles.map((style: StyleRef) => (
-                <span className="upload-code" key={style.code}>
-                  {style.code}
-                </span>
-              ))}
-            </div>
+            {styles.length > 0 ? (
+              <div className="upload-codes">
+                {styles.map((style: StyleRef) => (
+                  <span className="upload-code" key={style.code}>
+                    {style.code}
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </section>
 
           <section className="spec-group">
@@ -205,8 +209,8 @@ const UploadPhotosDialog = ({
             <input
               ref={inputRef}
               type="file"
-              accept="image/*"
-              multiple
+              accept="image/jpeg,image/png,image/webp"
+              multiple={!singleStyle}
               className="upload-input"
               aria-label={t('choosePhotosAria')}
               onChange={(event) => appendFiles(event.target.files)}
@@ -224,7 +228,7 @@ const UploadPhotosDialog = ({
             >
               <ImageUp size={18} />
               <span>{t('choosePhotos')}</span>
-              <em>{t('multipleFiles')}</em>
+              <em>{singleStyle ? t('onePhotoPerStyle') : t('multipleFiles')}</em>
             </button>
 
             {tasks.length === 0 ? (
@@ -235,11 +239,22 @@ const UploadPhotosDialog = ({
                   <li className="upload-item" key={task.id}>
                     <div className="upload-item-main">
                       <span className="upload-name">{task.file.name}</span>
-                      <span className="upload-meta">
-                        {task.styleCode
-                          ? `${task.styleCode} · ${task.styleName}`
-                          : t('unmatchedFileName')}
-                      </span>
+                      {bulk ? (
+                        <input
+                          className="upload-code-input"
+                          value={task.styleCode}
+                          placeholder={t('styleCodePlaceholder')}
+                          spellCheck={false}
+                          aria-label={t('styleCodePlaceholder')}
+                          onChange={(event) => updateTaskCode(task.id, event.target.value)}
+                        />
+                      ) : (
+                        <span className="upload-meta">
+                          {task.styleCode
+                            ? [task.styleCode, task.styleName].filter(Boolean).join(' · ')
+                            : t('unmatchedFileName')}
+                        </span>
+                      )}
                     </div>
                     <span className={`upload-status upload-status--${task.status}`}>
                       {task.message}

@@ -1,4 +1,6 @@
 import { Camera, ImageUp } from 'lucide-react';
+import { useState } from 'react';
+import type { MouseEvent } from 'react';
 import type { StyleDetail } from '../../types';
 import { Image } from '../../ui/image';
 import { photoOf } from '../constants';
@@ -11,6 +13,17 @@ interface MetaStripProps {
   sizeGroup: string;
   onPhotoAction?: () => void;
 }
+
+interface PhotoLens {
+  visible: boolean;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+const LENS_SIZE = 132;
+const LENS_ZOOM = 2.4;
 
 const PairList = ({ pairs }: { pairs: MetaPair[] }) => (
   <div className="kv-list">
@@ -27,6 +40,21 @@ const MetaStrip = ({ detail, sizeGroup, onPhotoAction }: MetaStripProps) => {
   const t = useT();
   const fields: MetaFields = buildMetaFields(detail, sizeGroup, t);
   const photo: string = detail.photoUrl || photoOf(detail.code);
+  const [lens, setLens] = useState<PhotoLens>({
+    visible: false,
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  });
+
+  const moveLens = (event: MouseEvent<HTMLDivElement>) => {
+    if (!photo) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    setLens({ visible: true, x, y, width: rect.width, height: rect.height });
+  };
 
   return (
     <section className="meta-grid" aria-label={t('styleInfo')}>
@@ -34,7 +62,12 @@ const MetaStrip = ({ detail, sizeGroup, onPhotoAction }: MetaStripProps) => {
         <PairList pairs={fields.id} />
       </div>
 
-      <div className="meta-card meta-card--photo">
+      <div
+        className={`meta-card meta-card--photo${photo ? ' meta-card--photo--zoom' : ''}`}
+        onMouseEnter={moveLens}
+        onMouseMove={moveLens}
+        onMouseLeave={() => setLens((current) => ({ ...current, visible: false }))}
+      >
         {photo ? (
           <Image src={photo} alt={t('samplePhotoAlt', { code: detail.code })} />
         ) : (
@@ -46,6 +79,29 @@ const MetaStrip = ({ detail, sizeGroup, onPhotoAction }: MetaStripProps) => {
             <span className="photo-empty-hint">{t('photoEmptyHint')}</span>
           </div>
         )}
+        {photo && lens.visible ? (
+          <span
+            className="photo-lens"
+            aria-hidden="true"
+            style={{
+              left: lens.x - LENS_SIZE / 2,
+              top: lens.y - LENS_SIZE / 2,
+            }}
+          >
+            <img
+              className="photo-lens-image"
+              src={photo}
+              alt=""
+              style={{
+                width: lens.width,
+                height: lens.height,
+                left: LENS_SIZE / 2 - lens.x * LENS_ZOOM,
+                top: LENS_SIZE / 2 - lens.y * LENS_ZOOM,
+                transform: `scale(${LENS_ZOOM})`,
+              }}
+            />
+          </span>
+        ) : null}
         {onPhotoAction ? (
           <button
             type="button"

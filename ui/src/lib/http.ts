@@ -41,6 +41,17 @@ interface RequestOptions {
   body?: unknown;
 }
 
+/** Lỗi HTTP có mã trạng thái để phân biệt lỗi mạng tạm thời với lỗi dữ liệu. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 export const apiRequest = async <T>(
   path: string,
   options: RequestOptions = {},
@@ -70,7 +81,10 @@ export const apiRequest = async <T>(
   }
 
   if (!response.ok) {
-    throw new Error(readMessage(payload, `${method} ${path} failed (${response.status})`));
+    throw new ApiError(
+      readMessage(payload, `${method} ${path} failed (${response.status})`),
+      response.status,
+    );
   }
   return payload as T;
 };

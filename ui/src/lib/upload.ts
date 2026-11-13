@@ -1,39 +1,29 @@
-import { authHeaders } from './http';
-import { envValue } from './env';
+import { ApiError, apiUrl, authHeaders } from './http';
 
-const UPLOAD_URL: string = envValue('VITE_UPLOAD_URL');
+export interface UploadedStylePhoto {
+  styleCode: string;
+  fileName: string;
+  photoUrl: string;
+}
 
-export const isUploadConfigured = (): boolean => Boolean(UPLOAD_URL);
-
-const pickUrl = (payload: unknown): string => {
-  if (typeof payload === 'string' && payload) return payload;
-  if (!payload || typeof payload !== 'object') return '';
-  const record = payload as Record<string, unknown>;
-  const candidates: unknown[] = [
-    record.url,
-    record.downloadUrl,
-    record.download_url,
-    (record.data as Record<string, unknown> | undefined)?.url,
-    (record.data as Record<string, unknown> | undefined)?.download_url,
-  ];
-  const found = candidates.find((item: unknown) => typeof item === 'string' && item);
-  return typeof found === 'string' ? found : '';
-};
-
-export const uploadPhoto = async (file: File): Promise<string> => {
-  if (!UPLOAD_URL) {
-    throw new Error(
-      'Photo upload is not configured. Set VITE_UPLOAD_URL to your upload endpoint.',
-    );
-  }
+/** Gửi ảnh trực tiếp lên API; API ghi file vào thư mục trên máy chạy Node. */
+export const uploadStylePhoto = async (
+  styleCode: string,
+  file: File,
+): Promise<UploadedStylePhoto> => {
   const form = new FormData();
   form.append('file', file, file.name);
-  const response: Response = await fetch(UPLOAD_URL, {
-    method: 'POST',
-    body: form,
-    credentials: 'include',
-    headers: authHeaders(),
-  });
+
+  const response: Response = await fetch(
+    apiUrl(`/bom/styles/${encodeURIComponent(styleCode)}/photo`),
+    {
+      method: 'POST',
+      body: form,
+      credentials: 'include',
+      headers: { ...authHeaders() },
+    },
+  );
+
   const text: string = await response.text();
   let payload: unknown = null;
   if (text) {
@@ -43,12 +33,21 @@ export const uploadPhoto = async (file: File): Promise<string> => {
       payload = text;
     }
   }
+
   if (!response.ok) {
-    throw new Error(`Upload failed (${response.status})`);
+    const message =
+      payload && typeof payload === 'object'
+        ? (payload as { error?: { message?: string } }).error?.message
+        : '';
+    throw new ApiError(
+      message || `Upload failed (${response.status})`,
+      response.status,
+    );
   }
-  const url: string = pickUrl(payload);
-  if (!url) {
-    throw new Error('Upload endpoint must return url, downloadUrl or download_url');
+
+  if (!payload || typeof payload !== 'object' || !('photoUrl' in payload)) {
+    throw new Error('API không trả về photoUrl');
   }
-  return url;
+
+  return payload as UploadedStylePhoto;
 };

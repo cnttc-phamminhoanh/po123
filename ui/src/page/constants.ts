@@ -46,8 +46,7 @@ export interface SeriesMeta<K extends string> {
 export const MATERIAL_SERIES: SeriesMeta<BomCategory>[] = [
   { key: 'fabric', labelKey: 'seriesFabric', color: RAMP[0] },
   { key: 'trim', labelKey: 'seriesTrim', color: RAMP[1] },
-  { key: 'wash', labelKey: 'seriesWash', color: RAMP[2] },
-  { key: 'pack', labelKey: 'seriesPack', color: RAMP[3] },
+  { key: 'pack', labelKey: 'seriesPack', color: RAMP[2] },
 ];
 
 export const LABOR_SERIES: SeriesMeta<LaborOpCode>[] = [

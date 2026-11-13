@@ -13,7 +13,7 @@ interface MaterialsViewProps {
 const MaterialsView = ({ detail }: MaterialsViewProps) => {
   const t = useT();
   const matrix: { label: string; cells: number[]; total: number }[] =
-    MATERIAL_SERIES.map((series: SeriesMeta<'fabric' | 'trim' | 'wash' | 'pack'>) => {
+    MATERIAL_SERIES.map((series: SeriesMeta<'fabric' | 'trim' | 'pack'>) => {
       const cells: number[] = detail.pos.map((po) => bomAmount(po, series.key));
       return {
         label: t(series.labelKey),

@@ -8,6 +8,7 @@ interface SummaryViewProps {
   sizeGroup: string;
   openGroups: Record<CostGroup, boolean>;
   onToggleGroup: (group: CostGroup) => void;
+  onToggleAllGroups: () => void;
   onPhotoAction?: () => void;
   loading?: boolean;
 }
@@ -17,6 +18,7 @@ const SummaryView = ({
   sizeGroup,
   openGroups,
   onToggleGroup,
+  onToggleAllGroups,
   onPhotoAction,
   loading = false,
 }: SummaryViewProps) => (
@@ -34,6 +36,7 @@ const SummaryView = ({
           index={index}
           openGroups={openGroups}
           onToggleGroup={onToggleGroup}
+          onToggleAllGroups={onToggleAllGroups}
         />
       ))}
     </div>
