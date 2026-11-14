@@ -127,4 +127,11 @@ export const buildMaterialsOption = (
 export const buildLaborsOption = (
   pos: PoCostDetail[],
   t: Translate,
-): EChartsOption => buildOption(pos, LABOR_SERIES, laborOpCost, t);
+): EChartsOption => {
+  const series = LABOR_SERIES.filter(
+    (meta) =>
+      meta.key !== 'overhead' ||
+      pos.some((po) => laborOpCost(po, 'overhead') > 0),
+  );
+  return buildOption(pos, series, laborOpCost, t);
+};

@@ -31,21 +31,27 @@ const EMPTY_FILTERS: HistoryFilters = {
   to: '',
 };
 
-const formatTime = (value: string, locale: string): string => {
+const formatTime = (value: string): string => {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(locale === 'vi' ? 'vi-VN' : 'en-US', {
+  const parts = new Intl.DateTimeFormat('en-US', {
     day: '2-digit',
     month: '2-digit',
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-  }).format(date);
+    hour12: true,
+  }).formatToParts(date);
+  const part = (type: string): string =>
+    parts.find((item) => item.type === type)?.value ?? '';
+  return `${part('day')}/${part('month')}/${part('year')} ${part('hour')}:${part(
+    'minute',
+  )} ${part('dayPeriod')}`;
 };
 
 const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const [filters, setFilters] = useState<HistoryFilters>(EMPTY_FILTERS);
   const [items, setItems] = useState<PhotoHistoryEntry[]>([]);
   const [total, setTotal] = useState(0);
@@ -209,7 +215,7 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
                 {items.map((entry) => (
                   <div key={entry.id} className="history-row">
                     <span className="history-time">
-                      {formatTime(entry.uploadedAt, locale)}
+                      {formatTime(entry.uploadedAt)}
                     </span>
                     <span className="history-style-code">{entry.styleCode}</span>
                     <span className="history-user">

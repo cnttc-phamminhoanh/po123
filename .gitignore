@@ -33,3 +33,5 @@ desktop.ini
 *.swp
 *.suo
 scripts/
+
+sql/

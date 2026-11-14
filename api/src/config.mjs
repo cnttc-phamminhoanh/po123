@@ -37,4 +37,19 @@ export const config = {
       ...(env.DB_INSTANCE ? { instanceName: env.DB_INSTANCE } : {}),
     },
   },
+  oldDb: {
+    server: env.OLD_DB_SERVER ?? '',
+    port: Number(env.OLD_DB_PORT ?? 9000),
+    database: env.OLD_DB_NAME ?? 'erp_t8_GI',
+    user: env.OLD_DB_USER ?? undefined,
+    password: env.OLD_DB_PASSWORD ?? undefined,
+    domain: env.OLD_DB_DOMAIN || undefined,
+    instanceName: env.OLD_DB_INSTANCE || undefined,
+    encrypt: asBool(env.OLD_DB_ENCRYPT, false),
+    trustServerCertificate: asBool(env.OLD_DB_TRUST_CERT, true),
+    options: {
+      requestTimeout: 30000,
+      ...(env.OLD_DB_INSTANCE ? { instanceName: env.OLD_DB_INSTANCE } : {}),
+    },
+  },
 };

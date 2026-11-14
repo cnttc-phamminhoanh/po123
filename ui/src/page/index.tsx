@@ -15,6 +15,7 @@ import { useLatestStyle, useStyleDetail } from './hooks';
 import type { CostGroup } from './constants';
 import { errorMessage, storageErrorText } from './utils/error';
 import SummaryView from './components/SummaryView';
+import CatAstronautLoader from './components/CatAstronautLoader';
 import SizeGroupBar from './components/SizeGroupBar';
 import { FileDown, History, ImageUp, LogIn, LogOut, Search, Users } from 'lucide-react';
 import { exportNodeToA3Pdf, downloadBlob } from './utils/exportPdf';
@@ -231,7 +232,7 @@ const PoSummaryPage = () => {
   const renderBody = () => {
     if (!draftCode) {
       if (latestQuery.isLoading) {
-        return <div className="load-state">{t('loadingStyles')}</div>;
+        return <CatAstronautLoader label={t('loadingStyles')} />;
       }
       if (latestQuery.isError) {
         return (
@@ -243,7 +244,7 @@ const PoSummaryPage = () => {
       return <div className="load-state">{t('selectStyleToView')}</div>;
     }
     if (detailQuery.isLoading) {
-      return <div className="load-state">{t('loadingCostSheet')}</div>;
+      return <CatAstronautLoader label={t('loadingCostSheet')} />;
     }
     if (detailQuery.isError) {
       return (
@@ -264,6 +265,7 @@ const PoSummaryPage = () => {
         onToggleAllGroups={handleToggleAllGroups}
         onPhotoAction={() => openUpload('single')}
         loading={detailQuery.isPlaceholderData}
+        loadingLabel={t('loadingCostSheet')}
       />
     );
   };

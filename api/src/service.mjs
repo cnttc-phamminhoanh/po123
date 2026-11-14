@@ -1,4 +1,4 @@
-import { query } from './db.mjs';
+import { query, queryOld } from './db.mjs';
 import {
   SQL_LATEST_STYLE,
   SQL_PO1_COST,
@@ -8,6 +8,10 @@ import {
   SQL_STYLE_QTY,
 } from './sql.mjs';
 import { SQL_PO2A_MATERIAL } from './po2a-material.mjs';
+import { SQL_PO2B_MATERIAL } from './po2b-material.mjs';
+import { SQL_PO3_MATERIAL } from './po3-material.mjs';
+import { SQL_PO3_PRICE } from './po3-price.mjs';
+import { SQL_PO3_LABOR } from './po3-labor.mjs';
 
 const SIZE_GROUP_COMMON = 'COMMON-999';
 
@@ -17,6 +21,7 @@ const num = (value) => {
 };
 
 const round2 = (value) => Math.round((num(value) + Number.EPSILON) * 100) / 100;
+const round4 = (value) => Math.round((num(value) + Number.EPSILON) * 10000) / 10000;
 
 const sizeRank = (group) => {
   const match = String(group ?? '').match(/(\d+)\s*$/);
@@ -122,19 +127,18 @@ const buildPo = (cost, qty, shippedQty, terms, code) => {
     materialTotal,
     laborOps: [
       { opCode: 'cut', opName: 'Cutting', minutes: 0, cost: round2(cost.cut) },
-      {
-        opCode: 'sew',
-        opName: 'Sewing',
-        minutes: 0,
-        cost: round2(num(cost.sew) + num(cost.pri) + num(cost.emb)),
-      },
+      { opCode: 'pri', opName: 'Printing', minutes: 0, cost: round2(cost.pri) },
+      { opCode: 'emb', opName: 'Embroidery', minutes: 0, cost: round2(cost.emb) },
+      { opCode: 'sew', opName: 'Sewing', minutes: 0, cost: round2(cost.sew) },
       {
         opCode: 'fin',
         opName: 'Finishing',
         minutes: 0,
-        cost: round2(num(cost.fin) + num(cost.etc) + num(cost.soc)),
+        cost: round2(cost.fin),
       },
+      { opCode: 'soc', opName: 'Socks', minutes: 0, cost: round2(cost.soc) },
       { opCode: 'pack', opName: 'Packing', minutes: 0, cost: round2(cost.pac) },
+      { opCode: 'etc', opName: 'ETC', minutes: 0, cost: round4(cost.etc) },
     ],
     otherCosts: [
       { category: 'overhead', label: 'Overhead', amount: overheadExpense },
@@ -193,9 +197,13 @@ const buildEmptyPo = (code, suffix) => ({
   materialTotal: 0,
   laborOps: [
     { opCode: 'cut', opName: 'Cutting', minutes: 0, cost: 0 },
+    { opCode: 'pri', opName: 'Printing', minutes: 0, cost: 0 },
+    { opCode: 'emb', opName: 'Embroidery', minutes: 0, cost: 0 },
     { opCode: 'sew', opName: 'Sewing', minutes: 0, cost: 0 },
     { opCode: 'fin', opName: 'Finishing', minutes: 0, cost: 0 },
+    { opCode: 'soc', opName: 'Socks', minutes: 0, cost: 0 },
     { opCode: 'pack', opName: 'Packing', minutes: 0, cost: 0 },
+    { opCode: 'etc', opName: 'Other (ETC)', minutes: 0, cost: 0 },
   ],
   otherCosts: [
     { category: 'overhead', label: 'Overhead', amount: 0 },
@@ -300,18 +308,57 @@ export const getStyleDetail = async (code, seasonParam, sizeGroupParam) => {
   if (costRows.length === 0) return null;
   const cost = costRows[0];
 
-  const [qtyRows, materialRows] = await Promise.all([
+  const [qtyRows, materialRows, po2bRows, po3Rows, po3LaborRows, po3PriceRows] = await Promise.all([
     query(SQL_STYLE_QTY, { style: code }),
     query(SQL_PO2A_MATERIAL, {
       p_style: code,
       p_season: season,
       p_size_grp: sizeGroup,
+    }).catch((error) => {
+      console.warn('[api] PO2A material failed:', error.message);
+      return [];
+    }),
+    query(SQL_PO2B_MATERIAL, {
+      p_style: code,
+      p_season: season,
+      p_size_grp: sizeGroup,
+    }).catch((error) => {
+      console.warn('[api] PO2B material failed:', error.message);
+      return [];
+    }),
+    query(SQL_PO3_MATERIAL, {
+      p_style: code,
+      p_season: season,
+      p_size_grp: sizeGroup,
+    }).catch((error) => {
+      console.warn('[api] PO3 material failed:', error.message);
+      return [];
+    }),
+    queryOld(SQL_PO3_LABOR, {
+      p_style: code,
+      p_season: season,
+      p_size_grp: sizeGroup,
+    }).catch((error) => {
+      console.warn('[api] PO3 labor (old DB) failed:', error.message);
+      return [];
+    }),
+    query(SQL_PO3_PRICE, {
+      p_style: code,
+      p_season: season,
+      p_size_grp: sizeGroup,
+    }).catch((error) => {
+      console.warn('[api] PO3 FOB price failed:', error.message);
+      return [];
     }),
   ]);
 
   // Giữ đúng tham số season/size group đang xem. Nếu SQL cũ không có dòng
-  // tương ứng thì vật liệu PO2A để 0, không tự đổi sang season khác.
+  // tương ứng thì vật liệu PO2A/PO2B/PO3 và nhân công PO3 để 0, không tự đổi.
   const po2aMaterial = materialRows[0] ?? {};
+  const po2bMaterial = po2bRows[0] ?? {};
+  const po3Material = po3Rows[0] ?? {};
+  const po3Labor = po3LaborRows[0] ?? {};
+  const po3Price = po3PriceRows[0] ?? {};
 
   const qtyRow = qtyRows[0] ?? {};
   const units = num(qtyRow.units);
@@ -323,7 +370,7 @@ export const getStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     otherCosts: po1.otherCosts.map((line) => ({ ...line })),
     otherTotal: po1.otherTotal,
   });
-  /** PO2A / PO2B dùng đúng chi phí nhân công của PO1; vật tư chỉ PO2A có dữ liệu. */
+  /** PO2A / PO2B dùng đúng chi phí nhân công của PO1. */
   const sharedLabor = (po) => {
     const laborCost = po1.laborCost;
     const laborOps = po1.laborOps.map((line) => ({ ...line }));
@@ -345,11 +392,105 @@ export const getStyleDetail = async (code, seasonParam, sizeGroupParam) => {
       gpPct: price > 0 ? round2((gp / price) * 100) : 0,
     };
   };
+  /**
+   * PO3: vật liệu + nhân công + chi phí khác.
+   *
+   * SQL nhân công trả từng công đoạn theo USD/pcs. UI hiển thị đúng 8 cột
+   * như SQL, tách riêng cả `etc`:
+   * Cut / Pri / Emb / Sew / Fin / Soc / Pack / ETC.
+   *
+   * SQL cũ tính:
+   *   x       = cut + soc + sew + fin + pac + etc   (các công đoạn không in/thêu)
+   *   emb_pri = pri + emb
+   *   overhead = x * 0.61 * 1.6
+   *   l_ttl   = emb_pri + overhead + x * 1.6
+   *
+   * Nếu UI hiển thị x dạng gốc (chưa nhân 1.6), chỉ thêm dòng:
+   *   - Overhead = x * 0.61 * 1.6
+   * Tổng PO3 vẫn lấy l_ttl. Người dùng tự áp công thức để đối chiếu:
+   * x + 0.6x + 0.61*1.6x + emb_pri = l_ttl.
+   */
+  const withPo3Cost = (po, material, labor, priceRow) => {
+    const updated = withMaterial(po, material);
+    const cut = num(labor.cut);
+    const pri = num(labor.pri);
+    const emb = num(labor.emb);
+    const sew = num(labor.sew);
+    const fin = num(labor.fin);
+    const soc = num(labor.soc);
+    const pack = num(labor.pac);
+    const etc = num(labor.etc);
+    const cutCost = round2(cut);
+    const priCost = round2(pri);
+    const embCost = round2(emb);
+    const sewCost = round2(sew);
+    const finCost = round2(fin);
+    const socCost = round2(soc);
+    const packCost = round2(pack);
+    const etcCost = round4(etc);
+    const rawTotal = round2(
+      cutCost +
+        priCost +
+        embCost +
+        sewCost +
+        finCost +
+        socCost +
+        packCost +
+        etcCost,
+    );
+
+    // x và emb_pri lấy số gốc chưa làm tròn, đúng như SQL cũ.
+    const x = cut + soc + sew + fin + pack + etc;
+    const overheadCost = round2(x * 0.61 * 1.6);
+
+    const lttl = Number(labor.l_ttl);
+    const lttlRounded = Number.isFinite(lttl) && lttl !== 0
+      ? round2(lttl)
+      : null;
+    const formulaTotal = round2(rawTotal + overheadCost + x * 0.6);
+    const laborCost = lttlRounded ?? formulaTotal;
+
+    const unitCost = round2(updated.materialTotal + laborCost + updated.otherTotal);
+    const fobPrice = round2(priceRow['PO3 Avg SO Unit Price'] ?? priceRow.avg_so_unit_price);
+    const gp = fobPrice > 0 ? round2(fobPrice - unitCost) : 0;
+    // PO3 là cột chi phí, không tự đổi quantity của cột; chỉ gắn đơn giá FOB.
+    const orderValue = round2(updated.qty * fobPrice);
+    const costValue = round2(updated.qty * unitCost);
+
+    return {
+      ...updated,
+      price: fobPrice,
+      priceLabel: 'PO3 Avg SO Unit Price',
+      gp,
+      gpPct: fobPrice > 0 ? round2((gp / fobPrice) * 100) : 0,
+      orderValue,
+      costValue,
+      gpValue: round2(orderValue - costValue),
+      laborCost,
+      laborOps: [
+        { opCode: 'cut', opName: 'Cutting', minutes: 0, cost: cutCost },
+        { opCode: 'pri', opName: 'Printing', minutes: 0, cost: priCost },
+        { opCode: 'emb', opName: 'Embroidery', minutes: 0, cost: embCost },
+        { opCode: 'sew', opName: 'Sewing', minutes: 0, cost: sewCost },
+        { opCode: 'fin', opName: 'Finishing', minutes: 0, cost: finCost },
+        { opCode: 'soc', opName: 'Socks', minutes: 0, cost: socCost },
+        { opCode: 'pack', opName: 'Packing', minutes: 0, cost: packCost },
+        { opCode: 'etc', opName: 'ETC', minutes: 0, cost: etcCost },
+        {
+          opCode: 'overhead',
+          opName: 'Overhead',
+          minutes: 0,
+          cost: overheadCost,
+        },
+      ],
+      unitCost,
+    };
+  };
   const pos = [
     po1,
     sharedPrice(sharedLabor(sharedOther(withMaterial(buildEmptyPo(code, '2A'), po2aMaterial)))),
-    sharedPrice(sharedLabor(sharedOther(buildEmptyPo(code, '2B')))),
-    sharedOther(buildEmptyPo(code, '3')),
+    sharedPrice(sharedLabor(sharedOther(withMaterial(buildEmptyPo(code, '2B'), po2bMaterial)))),
+    withPo3Cost(sharedOther(buildEmptyPo(code, '3')), po3Material, po3Labor, po3Price),
   ];
 
   const orderValue = round2(pos.reduce((sum, po) => sum + po.orderValue, 0));

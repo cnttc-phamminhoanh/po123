@@ -5,6 +5,7 @@ export interface MiniChartItem {
   label: string;
   value: number;
   color: string;
+  digits?: number;
 }
 
 interface MiniChartProps {
@@ -39,7 +40,7 @@ const MiniChart = ({ items, footLeft, footRight, lead }: MiniChartProps) => {
           <div className="mini-item" key={item.label}>
             <span className="swatch" style={{ background: item.color }} />
             <span className="name">{item.label}</span>
-            <span className="val">{money(item.value)}</span>
+            <span className="val">{money(item.value, item.digits ?? 2)}</span>
           </div>
         ))}
       </div>

@@ -168,11 +168,17 @@ const PoColumn = ({
     color: series.color,
   }));
 
-  const laborItems: MiniChartItem[] = LABOR_SERIES.map((series) => ({
-    label: t(series.labelKey),
-    value: laborOpCost(po, series.key),
-    color: series.color,
-  }));
+  const laborItems: MiniChartItem[] = LABOR_SERIES
+    .filter(
+      (series) =>
+        series.key !== 'overhead' || laborOpCost(po, 'overhead') > 0,
+    )
+    .map((series) => ({
+      label: t(series.labelKey),
+      value: laborOpCost(po, series.key),
+      color: series.color,
+      digits: series.key === 'etc' ? 4 : 2,
+    }));
 
   const otherItems: MiniChartItem[] = OTHER_SERIES.map((series) => ({
     label: t(series.labelKey),

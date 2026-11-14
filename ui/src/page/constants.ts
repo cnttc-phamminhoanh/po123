@@ -35,7 +35,17 @@ export const poHeaderOf = (index: number, fallback: string): string =>
 export const paletteOf = (poNo: string, index: number): PoPalette =>
   PO_COLORS[poNo] ?? PO_PALETTES[index % PO_PALETTES.length];
 
-export const RAMP: string[] = ['#6E57DA', '#8D76E6', '#B2A0EF', '#CFC3F4'];
+export const RAMP: string[] = [
+  '#6E57DA',
+  '#8D76E6',
+  '#B2A0EF',
+  '#CFC3F4',
+  '#4F3AA6',
+  '#A18ADF',
+  '#7C65D9',
+  '#3D2E80',
+  '#C9A227',
+];
 
 export interface SeriesMeta<K extends string> {
   key: K;
@@ -50,10 +60,15 @@ export const MATERIAL_SERIES: SeriesMeta<BomCategory>[] = [
 ];
 
 export const LABOR_SERIES: SeriesMeta<LaborOpCode>[] = [
-  { key: 'cut', labelKey: 'seriesCut', color: RAMP[0] },
-  { key: 'sew', labelKey: 'seriesSew', color: RAMP[1] },
-  { key: 'fin', labelKey: 'seriesFin', color: RAMP[2] },
-  { key: 'pack', labelKey: 'seriesPacking', color: RAMP[3] },
+  { key: 'cut', labelKey: 'seriesCut', color: '#3F6699' },
+  { key: 'pri', labelKey: 'seriesPri', color: '#4F8B73' },
+  { key: 'emb', labelKey: 'seriesEmb', color: '#B07D45' },
+  { key: 'sew', labelKey: 'seriesSew', color: '#A65F63' },
+  { key: 'fin', labelKey: 'seriesFin', color: '#4C8B91' },
+  { key: 'soc', labelKey: 'seriesSoc', color: '#7C6FA3' },
+  { key: 'pack', labelKey: 'seriesPacking', color: '#7D8C55' },
+  { key: 'etc', labelKey: 'seriesEtc', color: '#6F7377' },
+  { key: 'overhead', labelKey: 'seriesLaborOverhead', color: '#B5964A' },
 ];
 
 export const OTHER_SERIES: SeriesMeta<OtherCostCategory>[] = [

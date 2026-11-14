@@ -58,9 +58,13 @@ const buildCostSchema = (t: Translate) =>
     trim: z.number().min(0, t('zodMustBeNonNeg')),
     pack: z.number().min(0, t('zodMustBeNonNeg')),
     cut: z.number().min(0, t('zodMustBeNonNeg')),
+    pri: z.number().min(0, t('zodMustBeNonNeg')),
+    emb: z.number().min(0, t('zodMustBeNonNeg')),
     sew: z.number().min(0, t('zodMustBeNonNeg')),
     fin: z.number().min(0, t('zodMustBeNonNeg')),
+    soc: z.number().min(0, t('zodMustBeNonNeg')),
     packMinutes: z.number().min(0, t('zodMustBeNonNeg')),
+    etc: z.number().min(0, t('zodMustBeNonNeg')),
     overhead: z.number().min(0, t('zodMustBeNonNeg')),
     qc: z.number().min(0, t('zodMustBeNonNeg')),
     freight: z.number().min(0, t('zodMustBeNonNeg')),
@@ -104,9 +108,13 @@ const toFormValues = (po: PoCostDetail): CostFormData => ({
   trim: bomAmount(po, 'trim'),
   pack: bomAmount(po, 'pack'),
   cut: minutesOf(po, 'cut'),
+  pri: minutesOf(po, 'pri'),
+  emb: minutesOf(po, 'emb'),
   sew: minutesOf(po, 'sew'),
   fin: minutesOf(po, 'fin'),
+  soc: minutesOf(po, 'soc'),
   packMinutes: minutesOf(po, 'pack'),
+  etc: minutesOf(po, 'etc'),
   overhead: otherAmount(po, 'overhead'),
   qc: otherAmount(po, 'qc'),
   freight: otherAmount(po, 'freight'),
@@ -132,13 +140,17 @@ const toRequest = (po: PoCostDetail, data: CostFormData): UpdatePoCostRequest =>
   ],
   laborOps: [
     { opCode: 'cut', opName: opName(po, 'cut'), minutes: data.cut },
+    { opCode: 'pri', opName: opName(po, 'pri'), minutes: data.pri },
+    { opCode: 'emb', opName: opName(po, 'emb'), minutes: data.emb },
     { opCode: 'sew', opName: opName(po, 'sew'), minutes: data.sew },
     { opCode: 'fin', opName: opName(po, 'fin'), minutes: data.fin },
+    { opCode: 'soc', opName: opName(po, 'soc'), minutes: data.soc },
     {
       opCode: 'pack',
       opName: opName(po, 'pack'),
       minutes: data.packMinutes,
     },
+    { opCode: 'etc', opName: opName(po, 'etc'), minutes: data.etc },
   ],
   otherCosts: [
     {
@@ -204,9 +216,13 @@ const CostForm = ({ po, saving, onCancel, onSubmit }: CostFormProps) => {
       | 'trim'
       | 'pack'
       | 'cut'
+      | 'pri'
+      | 'emb'
       | 'sew'
       | 'fin'
+      | 'soc'
       | 'packMinutes'
+      | 'etc'
       | 'overhead'
       | 'qc'
       | 'freight',
@@ -285,9 +301,13 @@ const CostForm = ({ po, saving, onCancel, onSubmit }: CostFormProps) => {
               <h3>{t('laborMinutesSection')}</h3>
               <div className="po-form-grid po-form-grid--four">
                 {numberInput('cut', t('seriesCut'), '0.1')}
+                {numberInput('pri', t('seriesPri'), '0.1')}
+                {numberInput('emb', t('seriesEmb'), '0.1')}
                 {numberInput('sew', t('seriesSew'), '0.1')}
                 {numberInput('fin', t('seriesFin'), '0.1')}
+                {numberInput('soc', t('seriesSoc'), '0.1')}
                 {numberInput('packMinutes', t('seriesPacking'), '0.1')}
+                {numberInput('etc', t('seriesEtc'), '0.01')}
               </div>
             </section>
 

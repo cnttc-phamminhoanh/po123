@@ -15,15 +15,30 @@ export const BOM_CATEGORY_DEFAULT_ITEMS: Record<BomCategory, string> = {
   pack: 'Packaging materials',
 };
 
-export const LABOR_OP_CODES = ['cut', 'sew', 'fin', 'pack'] as const;
+export const LABOR_OP_CODES = [
+  'cut',
+  'pri',
+  'emb',
+  'sew',
+  'fin',
+  'soc',
+  'pack',
+  'etc',
+  'overhead',
+] as const;
 export type LaborOpCode = (typeof LABOR_OP_CODES)[number];
 export const isLaborOpCode = (v: string): v is LaborOpCode =>
   (LABOR_OP_CODES as readonly string[]).includes(v);
 export const LABOR_OP_LABELS: Record<LaborOpCode, string> = {
   cut: 'Cutting',
+  pri: 'Printing',
+  emb: 'Embroidery',
   sew: 'Sewing',
   fin: 'Finishing',
+  soc: 'Socks',
   pack: 'Packing',
+  etc: 'ETC',
+  overhead: 'Overhead',
 };
 
 export const OTHER_COST_CATEGORIES = ['overhead', 'qc', 'freight'] as const;

@@ -17,6 +17,11 @@ export const latestStyleKey = ['bom', 'latest-style'] as const;
 export const styleDetailKey = (code: string, season: string, sizeGroup: string) =>
   ['bom', 'style', code, season, sizeGroup] as const;
 
+/** Dùng lại kết quả cho cùng mã hàng/mùa/size trong 60 giây. */
+const STYLE_DETAIL_STALE_MS = 60_000;
+/** Giữ kết quả trong bộ nhớ 30 phút để quay lại không phải tải lại từ đầu. */
+const STYLE_DETAIL_GC_MS = 30 * 60_000;
+
 /** Lỗi mạng / 5xx lúc API vừa khởi động thì thử lại; lỗi 4xx thì dừng ngay. */
 const retryTransient = (failureCount: number, error: unknown): boolean => {
   if (failureCount >= 3) return false;
@@ -37,6 +42,8 @@ export const useStyleDetail = (code: string, season: string, sizeGroup: string) 
     queryKey: styleDetailKey(code, season, sizeGroup),
     queryFn: () => fetchStyle(code, season || undefined, sizeGroup || undefined),
     enabled: Boolean(code),
+    staleTime: STYLE_DETAIL_STALE_MS,
+    gcTime: STYLE_DETAIL_GC_MS,
     // Giữ dữ liệu đang xem trong lúc tải style/mùa mới để tránh nháy trắng.
     placeholderData: (previousData) => previousData,
     retry: retryTransient,

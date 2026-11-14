@@ -1,6 +1,6 @@
 # PO123 API — Express + SQL Server
 
-Backend thật cho UI PO cost summary. Không còn mock: mọi số liệu lấy từ SQL Server qua `mssql` (pool kết nối, query tham số hoá).
+Backend thật cho UI PO cost summary. Không còn mock: mọi số liệu lấy từ SQL Server qua `mssql` (pool kết nối, query tham số hoá). Riêng nhân công PO3 dùng pool thứ hai `OLD_DB_*` trỏ tới máy chủ cũ chứa `ig_pywrkord` / `ig_pywrkstp` / `ig_pystpasm`.
 
 ## Chạy
 
@@ -43,6 +43,13 @@ Kiểm tra nhanh:
 | `DB_USER` / `DB_PASSWORD` | `sa` / `...` | Tài khoản SQL |
 | `DB_ENCRYPT` | `false` | Bật TLS |
 | `DB_TRUST_CERT` | `true` | Bỏ qua kiểm tra chứng chỉ tự ký |
+| `OLD_DB_SERVER` | `171.251.49.166` | Host máy chủ cũ chứa `ig_pywrkord` / `ig_pywrkstp` / `ig_pystpasm` |
+| `OLD_DB_PORT` | `9000` | Cổng máy chủ cũ |
+| `OLD_DB_NAME` | `erp_t8_GI` | Database chứa 3 bảng `ig_*` |
+| `OLD_DB_USER` / `OLD_DB_PASSWORD` | `Fast` / `...` | Tài khoản SQL của máy chủ cũ |
+| `OLD_DB_INSTANCE` | | Named instance (nếu có) |
+| `OLD_DB_ENCRYPT` / `OLD_DB_TRUST_CERT` | `false` / `true` | TLS của máy chủ cũ |
+| `OLD_DB_DOMAIN` | | Domain nếu dùng Windows/NTLM |
 | `PORT` | `3001` | Cổng API |
 | `CORS_ORIGIN` | `http://localhost:5174` | Origin được phép gọi API |
 | `PHOTO_DIR` | `C:\po123-data\photos` | Thư mục lưu ảnh style trên máy chạy Node |
@@ -101,6 +108,10 @@ Base: `/api/auth`
   `sal_po_costing1` (header, FOB `def06`, factory `def05`, version `ver_no`) +
   `sal_po_costing3` (vật tư) + `sal_po_costing2` (nhân công) + `sal_po_costing4` (chi phí khác).
 - **PO2A material** = tính theo logic SQL cũ: mã F của style + dòng SO hợp lệ + MRP/pur_plan/pur_order; nếu `COMMON-999` thì chia theo tổng SL SO, nhóm size khác thì chia theo BOM và số lượng từng size. Các bảng chính: `bas_goods`, `sal_order1/2`, `bas_base_code`, `mrp_mrp2`, `pur_plan2`, `pur_order1/2`, `size_grp_gi`, `bom_stru1/2`, `bas_cur_acc`. Nếu season/size group đang xem không có dòng SO tương ứng thì để 0, không tự đổi sang season khác.
+- **PO2B material** = tính theo logic SQL cũ, giữ nguyên cách chọn SO/HADDAD, season, size group, MRP3/MRP2/forecast và BOM. Điểm khác PO2A: tiền vật tư lấy từ **phiếu nhập kho thực tế** (`pur_notice1/2`, `pur_in1/2`, loại `PZGI`, `PIGI/PTGI/PTGIA`), quy đổi USD bằng `bas_cur_acc` theo `acc_period`, rồi phân bổ về SO + size group. Nếu season/size group đang xem không có dữ liệu thì để 0.
+- **PO3 material** = tính theo logic SQL cũ từ **sản xuất thực tế**: MO (`sfc_mo1/2`) + phiếu xuất (`scm_out1/2`) + giá nhập kho (`pur_in1/2`) + BOM (`v_bom_stru2_sc_gi`), sau đó phân bổ về size group của SO. Nếu style/season/size group không có MO hoặc không có dòng xuất kho tương ứng thì để 0.
+- **PO3 FOB unit price** = chạy SQL `PO3 Avg SO Unit Price` trên DB hiện tại (RDS), lấy bình quân `sheet_pri * pri_dis` theo lượng SO của đúng style / season / size group. Kết quả gắn vào `po.price` của PO3; không tự đổi `qty`/tổng của cột, nếu không có SO phù hợp thì giá = 0. Đây là giá bán, không phải material cost.
+- **PO3 labor** = chạy đúng SQL gốc trên **máy chủ cũ** (`OLD_DB_*`), nơi có `ig_pywrkord` / `ig_pywrkstp` / `ig_pystpasm`. Dữ liệu SO và `size_grp_gi` lấy qua linked server `[RDS_PO123]` như SQL cũ. Dùng pool riêng `queryOld`, không dùng bảng tổng hợp `ig_wo_step_avg_cost`. UI hiển thị đúng 8 cột SQL (`cut/pri/emb/sew/fin/soc/pac/etc`) và thêm dòng **Overhead** = `x * 0.61 * 1.6`, với `x = cut+soc+sew+fin+pac+etc`; tổng PO3 lấy `l_ttl`. Người dùng tự áp công thức `x + 0.6x + 0.61*1.6x + emb_pri = l_ttl` để đối chiếu. Nếu chưa điền `OLD_DB_*`, query lỗi và nhân công PO3 = 0; không tự lấy nguồn khác.
 - **Style** so khớp theo khách: HADDAD so 8 ký tự đầu của `def04`, khách khác so nguyên chuỗi.
 - **Season** mặc định: bản ghi có `check_date` mới nhất.
 - **Size group** mặc định: quy ước trong tài liệu (ưu tiên bản ghi mới nhất khi có `COMMON-999`, ngược lại nhóm có số nhỏ nhất).
@@ -109,7 +120,7 @@ Base: `/api/auth`
 
 ## Quy ước hiển thị (theo yêu cầu hiện tại)
 
-1. **PO1** có dữ liệu thật; **PO2A** có **Materials theo logic SQL cũ**, **Labors giống PO1**, **Other Expenses giống PO1** và **giá FOB bằng PO1**; **PO2B** có **Labors giống PO1**, **Other Expenses giống PO1**, **giá FOB bằng PO1**, vật tư vẫn để 0; **PO3** chỉ có **Other Expenses giống PO1**, vật tư/nhân công/giá để 0.
+1. **PO1** có dữ liệu thật; **PO2A** có **Materials theo logic SQL cũ**, **Labors giống PO1**, **Other Expenses giống PO1** và **giá FOB bằng PO1**; **PO2B** có **Materials theo logic SQL cũ**, **Labors giống PO1**, **Other Expenses giống PO1** và **giá FOB bằng PO1**; **PO3** có **Materials theo logic SQL cũ**, **Labors theo logic SQL cũ**, **Other Expenses giống PO1**, **giá FOB lấy từ PO3 Avg SO Unit Price**; total cost của PO3 = material + labor + other.
 2. Bỏ **SAM**: `sam`, `efficiency`, `laborRate` trả 0, UI không còn hiện dòng SAM.
 3. Vật tư: `m1 → fabric`, `m2 (+ opa) → trim`, `m3 → pack`; `wash = 0` (dữ liệu chưa tách).
 4. Nhân công 4 công đoạn: `cut`, `sew` (gồm PRI + EMB), `fin` (gồm ETC + SOC), `pack`.
@@ -118,6 +129,6 @@ Base: `/api/auth`
 
 ## Ghi chú kỹ thuật
 
-- Mỗi lần mở một style: 4 query (context, chi phí PO1, số lượng đơn hàng, vật liệu PO2A). Có thể gộp context + chi phí thành một batch/CTE và chạy song song khi cần tối ưu thêm.
-- Toàn bộ SQL tập trung ở `src/sql.mjs`, không rải trong route.
+- Mỗi lần mở một style: 7 query (context, chi phí PO1, số lượng đơn hàng, vật liệu PO2A, vật liệu PO2B, vật liệu PO3, nhân công PO3). Năm query độc lập (số lượng, PO2A, PO2B, PO3 material trên RDS; PO3 labor trên pool `OLD_DB_*`) chạy song song; lỗi riêng của query vật liệu/nhân công không làm hỏng toàn bộ trang chi tiết.
+- Toàn bộ SQL tập trung ở `src/sql.mjs` và các module `po2a-material.mjs` / `po2b-material.mjs` / `po3-material.mjs` / `po3-labor.mjs`, không rải trong route.
 - `query()` trong `src/db.mjs` là điểm duy nhất mở kết nối; thêm query mới thì thêm hàm vào `service.mjs`, giữ route mỏng.
