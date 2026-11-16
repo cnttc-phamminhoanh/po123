@@ -82,10 +82,6 @@ jobs:
             echo "Không thấy nginx trên máy chủ. Cài nginx trước khi deploy." >&2
             exit 1
           }
-          test -f /etc/nginx/conf.d/po123.conf || {
-            echo "Chưa cài cấu hình Nginx. Chạy phần cài Nginx một lần trong deploy/README.md." >&2
-            exit 1
-          }
 
           install -d "$PROJECT_DIR/deploy" "$PROJECT_DIR/ui/dist"
 
@@ -100,6 +96,14 @@ jobs:
 
           pm2 startOrReload "$PROJECT_DIR/deploy/ecosystem.config.cjs" --only po123-api --update-env
           pm2 save
+
+          # Cấu hình Nginx chỉ cài khi chưa có
+          if [ ! -f /etc/nginx/conf.d/po123.conf ]; then
+            sudo -n true 2>/dev/null || {
+              echo "Chưa có cấu hình Nginx
+              exit 1
+            }
+          fi
 
       - name: Smoke test
         shell: bash
