@@ -1,0 +1,133 @@
+name: Deploy PO123
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: po123-production
+  cancel-in-progress: false
+
+env:
+  PROJECT_DIR: /home/it/po123
+
+jobs:
+  deploy:
+    # Runner service: /home/it/actions-runner-po123
+    # Nếu runner của bạn có label riêng, thêm label đó vào đây.
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            api/package-lock.json
+            ui/package-lock.json
+
+      - name: Install API dependencies
+        working-directory: api
+        run: npm ci
+
+      - name: Lint API
+        working-directory: api
+        run: npm run lint
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci
+
+      - name: Lint UI
+        working-directory: ui
+        run: npm run lint
+
+      - name: Build UI
+        working-directory: ui
+        env:
+          VITE_API_BASE_URL: /api
+        run: npm run build
+
+      - name: Deploy to server
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test -d "$PROJECT_DIR/api" || {
+            echo "Không thấy thư mục $PROJECT_DIR/api trên máy chủ." >&2
+            exit 1
+          }
+          test -f "$PROJECT_DIR/api/.env" || {
+            echo "Thiếu $PROJECT_DIR/api/.env. Tạo file này trước khi deploy." >&2
+            exit 1
+          }
+          test -d /var/lib/po123/photos || {
+            echo "Thiếu thư mục ảnh /var/lib/po123/photos. Tạo và cấp quyền trước khi deploy." >&2
+            exit 1
+          }
+          command -v pm2 >/dev/null 2>&1 || {
+            echo "Không thấy pm2 trong PATH của runner. Cài pm2 và kiểm tra lại." >&2
+            exit 1
+          }
+          command -v nginx >/dev/null 2>&1 || {
+            echo "Không thấy nginx trên máy chủ. Cài nginx trước khi deploy." >&2
+            exit 1
+          }
+          test -f /etc/nginx/conf.d/po123.conf || {
+            echo "Chưa cài cấu hình Nginx. Chạy phần cài Nginx một lần trong deploy/README.md." >&2
+            exit 1
+          }
+
+          install -d "$PROJECT_DIR/deploy" "$PROJECT_DIR/ui/dist"
+
+          # Không copy .env, node_modules hoặc dữ liệu ảnh local lên máy chủ.
+          rsync -a --exclude node_modules --exclude .env --exclude data \
+            api/ "$PROJECT_DIR/api/"
+          rsync -a --delete ui/dist/ "$PROJECT_DIR/ui/dist/"
+          install -m 0644 deploy/ecosystem.config.cjs "$PROJECT_DIR/deploy/ecosystem.config.cjs"
+
+          # Chỉ cài dependency chạy thật; ESLint và devDependencies không lên production.
+          (cd "$PROJECT_DIR/api" && npm ci --omit=dev --no-audit --no-fund)
+
+          pm2 startOrReload "$PROJECT_DIR/deploy/ecosystem.config.cjs" --only po123-api --update-env
+          pm2 save
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:2405/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "API không trả /health sau 20 giây." >&2
+              pm2 status || true
+              pm2 logs po123-api --lines 40 --nostream || true
+              exit 1
+            fi
+            sleep 1
+          done
+
+          curl -fsS http://127.0.0.1:8083/healthz >/dev/null
+          pm2 describe po123-api >/dev/null
+          pm2 status
+
+          if command -v ss >/dev/null 2>&1; then
+            ss -ltn | grep ':2405' || true
+            ss -ltn | grep ':8083' || true
+            if ss -ltn | grep ':2405' | grep -vq '127.0.0.1:2405'; then
+              echo "CẢNH BÁO: API 2405 đang nghe ra ngoài localhost." >&2
+              exit 1
+            fi
+          fi

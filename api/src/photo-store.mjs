@@ -275,7 +275,6 @@ export const searchPhotoHistory = async ({
   };
 };
 
-
 export const saveStylePhoto = async (styleCode, file) => {
   if (!file) {
     throw Object.assign(new Error('Thiếu file ảnh'), { status: 400 });

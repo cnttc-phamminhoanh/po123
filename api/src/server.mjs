@@ -55,8 +55,8 @@ app.use((error, _req, res, _next) => {
   });
 });
 
-const server = app.listen(config.port, () => {
-  console.info(`[api] API nghe tại http://localhost:${config.port}`);
+const server = app.listen(config.port, config.host, () => {
+  console.info(`[api] API nghe tại http://${config.host}:${config.port}`);
   if (!config.auth.secret) {
     console.warn(
       '[auth] Chưa cấu hình AUTH_SECRET trong api/.env — đăng nhập và upload ảnh đang bị khóa.',

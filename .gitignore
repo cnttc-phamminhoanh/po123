@@ -35,3 +35,8 @@ desktop.ini
 scripts/
 
 sql/
+
+/README.md
+/api/README.md
+/ui/README.md
+/deploy/README.md

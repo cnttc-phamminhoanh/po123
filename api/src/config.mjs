@@ -9,6 +9,7 @@ const asPositiveNumber = (value, fallback) => {
 };
 
 export const config = {
+  host: env.API_HOST || '127.0.0.1',
   port: Number(env.PORT ?? 3001),
   corsOrigin: env.CORS_ORIGIN ?? '*',
   auth: {

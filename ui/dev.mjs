@@ -54,7 +54,12 @@ process.on('SIGINT', () => shutdown(0));
 process.on('SIGTERM', () => shutdown(0));
 
 if (existsSync(path.join(apiDir, 'package.json'))) {
-  run(process.execPath, ['--watch', 'src/server.mjs'], { cwd: apiDir });
+  // api/.env có thể đang chứa PORT production (2405). Khi dev, luôn ép API về 3001
+  // để khớp với proxy trong vite.config.ts.
+  run(process.execPath, ['--watch', 'src/server.mjs'], {
+    cwd: apiDir,
+    env: { ...process.env, PORT: String(API_PORT), API_HOST },
+  });
   const apiStarted = await waitForApi();
   if (apiStarted) {
     // Cổng mở trước khi callback listen chạy xong; chờ thêm một nhịp ngắn.

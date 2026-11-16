@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "node dev.mjs",
     "dev:ui": "vite",
-    "mock": "node mock/server.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "build": "tsc --noEmit -p tsconfig.json && vite build",

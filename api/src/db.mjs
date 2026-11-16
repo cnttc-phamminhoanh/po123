@@ -8,15 +8,15 @@ let oldPoolPromise = null;
 const buildAuth = (dbConfig) =>
   dbConfig.domain
     ? {
-        authentication: {
-          type: 'ntlm',
-          options: {
-            domain: dbConfig.domain,
-            userName: dbConfig.user,
-            password: dbConfig.password,
-          },
+      authentication: {
+        type: 'ntlm',
+        options: {
+          domain: dbConfig.domain,
+          userName: dbConfig.user,
+          password: dbConfig.password,
         },
-      }
+      },
+    }
     : { user: dbConfig.user, password: dbConfig.password };
 
 const createPool = (dbConfig, max) =>

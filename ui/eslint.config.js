@@ -77,7 +77,7 @@ export default [
     },
   },
   {
-    files: ['mock/**/*.mjs', 'dev.mjs', 'eslint.config.js'],
+    files: ['dev.mjs', 'eslint.config.js'],
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: 'module',

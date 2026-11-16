@@ -6,7 +6,9 @@
   "description": "BOM / PO cost summary API — Express + SQL Server",
   "scripts": {
     "dev": "node --watch src/server.mjs",
-    "start": "node src/server.mjs"
+    "start": "node src/server.mjs",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -15,5 +17,11 @@
     "mssql": "^11.0.1",
     "multer": "^2.5.0",
     "sharp": "^0.35.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0"
   }
 }
