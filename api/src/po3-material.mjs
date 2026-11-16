@@ -27,7 +27,7 @@ DECLARE
 DROP TABLE IF EXISTS
   #so, #sg, #sg_sz, #grp_n, #so_sz, #line_n, #line_grp,
   #so_sg0, #so_sg, #mo, #mo_key, #mo_tot, #mo_sz,
-  #iss, #isz, #price, #bom, #alloc, #r;
+  #iss, #isz, #price, #bom, #alloc, #r_detail, #r;
 
 CREATE TABLE #so (
   so_no varchar(20), so_id int, f_goods varchar(30), season varchar(50),
@@ -560,13 +560,19 @@ END;
 
 SELECT
   a.size_grp,
+  i.goods_no AS mat_no,
   a.mat_cat,
-  SUM(a.usd_g * t.share) AS usd,
-  SUM(a.qty_g * t.share) AS qty_phat
-INTO #r
+  SUM(a.usd_g * t.share) AS usd
+INTO #r_detail
 FROM #alloc a
 JOIN #mo_tot t ON t.mo_no = a.mo_no
-GROUP BY a.size_grp, a.mat_cat;
+JOIN #isz i ON i.iid = a.iid
+GROUP BY a.size_grp, i.goods_no, a.mat_cat;
+
+SELECT size_grp, mat_cat, SUM(usd) AS usd
+INTO #r
+FROM #r_detail
+GROUP BY size_grp, mat_cat;
 
 ;WITH q AS (
   SELECT size_grp, SUM(qty) AS qty_g
@@ -590,7 +596,25 @@ SELECT
   SUM(CASE WHEN r.mat_cat = 'M2' THEN r.usd ELSE 0 END) / NULLIF(q.qty_g, 0) AS m2,
   SUM(CASE WHEN r.mat_cat = 'M3' THEN r.usd ELSE 0 END) / NULLIF(q.qty_g, 0) AS m3,
   SUM(CASE WHEN r.mat_cat = 'B' THEN r.usd ELSE 0 END) / NULLIF(q.qty_g, 0) AS opa,
-  SUM(r.usd) / NULLIF(q.qty_g, 0) AS m_ttl
+  SUM(r.usd) / NULLIF(q.qty_g, 0) AS m_ttl,
+  (
+    SELECT
+      CASE d.mat_cat
+        WHEN 'M1' THEN 'fabric'
+        WHEN 'M2' THEN 'trim'
+        WHEN 'M3' THEN 'pack'
+        WHEN 'B' THEN 'opa'
+      END AS category,
+      d.mat_no AS code,
+      ISNULL(g.goods_name, '') AS name,
+      d.usd / NULLIF(q.qty_g, 0) AS amount
+    FROM #r_detail d
+    LEFT JOIN bas_goods g WITH (NOLOCK) ON g.goods_no = d.mat_no
+    WHERE d.size_grp = @g
+      AND d.usd <> 0
+      AND d.mat_cat IN ('M1', 'M2', 'M3', 'B')
+    FOR JSON PATH
+  ) AS material_details
 FROM q
 LEFT JOIN #r r ON r.size_grp = q.size_grp
 WHERE q.size_grp = @g
@@ -599,5 +623,5 @@ GROUP BY q.size_grp, q.qty_g;
 DROP TABLE IF EXISTS
   #so, #sg, #sg_sz, #grp_n, #so_sz, #line_n, #line_grp,
   #so_sg0, #so_sg, #mo, #mo_key, #mo_tot, #mo_sz,
-  #iss, #isz, #price, #bom, #alloc, #r;
+  #iss, #isz, #price, #bom, #alloc, #r_detail, #r;
 `;

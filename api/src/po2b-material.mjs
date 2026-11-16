@@ -34,7 +34,7 @@ DROP TABLE IF EXISTS
   #line_grp, #q0, #q, #fg, #so_k, #fg_list,
   #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rc,
   #money, #bq_todo, #bq_done, #bq_sheet, #bl,
-  #use, #need, #alloc, #out;
+  #use, #need, #alloc_detail, #alloc, #out;
 
 SET @fc_mode = ISNULL(@fc_mode_override, 2);
 
@@ -615,11 +615,16 @@ allocation_weight AS (
     SUM(qty) OVER (PARTITION BY so_no,so_id,f_goods,mat_no) AS total_qty
   FROM need
 )
-SELECT size_grp,mat_cat,
+SELECT size_grp, mat_no, mat_cat,
   SUM(usd * CASE WHEN total_need > 0 THEN need / NULLIF(total_need,0) ELSE qty / NULLIF(total_qty,0) END) AS usd
-INTO #alloc
+INTO #alloc_detail
 FROM allocation_weight
-GROUP BY size_grp,mat_cat;
+GROUP BY size_grp, mat_no, mat_cat;
+
+SELECT size_grp, mat_cat, SUM(usd) AS usd
+INTO #alloc
+FROM #alloc_detail
+GROUP BY size_grp, mat_cat;
 
 CREATE CLUSTERED INDEX IX_alloc ON #alloc(size_grp,mat_cat);
 
@@ -634,7 +639,25 @@ SELECT
   SUM(CASE WHEN mat_cat = 'M2' THEN usd ELSE 0 END) / NULLIF(@qty_g,0) AS m2,
   SUM(CASE WHEN mat_cat = 'M3' THEN usd ELSE 0 END) / NULLIF(@qty_g,0) AS m3,
   SUM(CASE WHEN mat_cat NOT IN ('M1','M2','M3') THEN usd ELSE 0 END) / NULLIF(@qty_g,0) AS opa,
-  SUM(usd) / NULLIF(@qty_g,0) AS m_ttl
+  SUM(usd) / NULLIF(@qty_g,0) AS m_ttl,
+  (
+    SELECT
+      CASE d.mat_cat
+        WHEN 'M1' THEN 'fabric'
+        WHEN 'M2' THEN 'trim'
+        WHEN 'M3' THEN 'pack'
+        WHEN 'B' THEN 'opa'
+      END AS category,
+      d.mat_no AS code,
+      ISNULL(g.goods_name, '') AS name,
+      d.usd / NULLIF(@qty_g, 0) AS amount
+    FROM #alloc_detail d
+    LEFT JOIN bas_goods g WITH (NOLOCK) ON g.goods_no = d.mat_no
+    WHERE d.size_grp = @g
+      AND d.usd <> 0
+      AND d.mat_cat IN ('M1', 'M2', 'M3', 'B')
+    FOR JSON PATH
+  ) AS material_details
 FROM #alloc
 WHERE size_grp = @g
 GROUP BY size_grp;
@@ -644,5 +667,5 @@ DROP TABLE IF EXISTS
   #line_grp,#q0,#q,#fg,#so_k,#fg_list,
   #mrp_sh,#den,#mw,#mww,#mwp,#pln,#rc,
   #money,#bq_todo,#bq_done,#bq_sheet,#bl,
-  #use,#need,#alloc;
+  #use,#need,#alloc_detail,#alloc;
 `;

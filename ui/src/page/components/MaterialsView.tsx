@@ -1,7 +1,6 @@
 import ReactECharts from 'echarts-for-react';
 import type { StyleDetail } from '../../types';
 import { MATERIAL_SERIES, bomAmount } from '../constants';
-import type { SeriesMeta } from '../constants';
 import { useT } from '../../i18n';
 import { buildMaterialsOption } from '../chart-options';
 import { money } from '../utils/format';
@@ -13,7 +12,7 @@ interface MaterialsViewProps {
 const MaterialsView = ({ detail }: MaterialsViewProps) => {
   const t = useT();
   const matrix: { label: string; cells: number[]; total: number }[] =
-    MATERIAL_SERIES.map((series: SeriesMeta<'fabric' | 'trim' | 'pack'>) => {
+    MATERIAL_SERIES.map((series) => {
       const cells: number[] = detail.pos.map((po) => bomAmount(po, series.key));
       return {
         label: t(series.labelKey),

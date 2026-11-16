@@ -1,17 +1,19 @@
 /* 前后端共享的类型写在这里 */
 
-export const BOM_CATEGORIES = ['fabric', 'trim', 'pack'] as const;
+export const BOM_CATEGORIES = ['fabric', 'trim', 'opa', 'pack'] as const;
 export type BomCategory = (typeof BOM_CATEGORIES)[number];
 export const isBomCategory = (v: string): v is BomCategory =>
   (BOM_CATEGORIES as readonly string[]).includes(v);
 export const BOM_CATEGORY_LABELS: Record<BomCategory, string> = {
   fabric: 'Fabric',
   trim: 'Trims',
+  opa: 'OPA',
   pack: 'Packaging materials',
 };
 export const BOM_CATEGORY_DEFAULT_ITEMS: Record<BomCategory, string> = {
   fabric: 'Fabric',
   trim: 'Trims',
+  opa: 'OPA',
   pack: 'Packaging materials',
 };
 
@@ -55,6 +57,14 @@ export const OTHER_COST_LABELS: Record<OtherCostCategory, string> = {
 export interface BomLine {
   category: BomCategory;
   itemName: string;
+  amount: number;
+}
+
+/** 物料的组成明细：M1/M2/M3 汇总由哪些物料编码组成。 */
+export interface MaterialDetailLine {
+  category: BomCategory;
+  code: string;
+  name: string;
   amount: number;
 }
 
@@ -114,6 +124,7 @@ export interface PoCostDetail {
   laborRate: number;
   laborCost: number;
   bom: BomLine[];
+  materialDetails: MaterialDetailLine[];
   materialTotal: number;
   laborOps: LaborOpLine[];
   otherCosts: OtherCostLine[];

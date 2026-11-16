@@ -23,6 +23,41 @@ const num = (value) => {
 const round2 = (value) => Math.round((num(value) + Number.EPSILON) * 100) / 100;
 const round4 = (value) => Math.round((num(value) + Number.EPSILON) * 10000) / 10000;
 
+const BOM_CATEGORIES = new Set(['fabric', 'trim', 'opa', 'pack']);
+
+/** SQL trả JSON để giữ được danh sách mã vật tư trong cùng một dòng kết quả. */
+const parseMaterialDetails = (value) => {
+  let rows = value;
+  if (typeof rows === 'string') {
+    try {
+      rows = JSON.parse(rows);
+    } catch {
+      rows = [];
+    }
+  }
+  if (!Array.isArray(rows)) return [];
+
+  return rows
+    .map((row) => ({
+      category: String(row?.category ?? ''),
+      code: String(row?.code ?? '').trim(),
+      name: String(row?.name ?? '').trim(),
+      amount: round2(row?.amount),
+    }))
+    .filter(
+      (row) =>
+        BOM_CATEGORIES.has(row.category) &&
+        Number.isFinite(row.amount) &&
+        row.amount !== 0,
+    )
+    .sort(
+      (a, b) =>
+        ['fabric', 'trim', 'opa', 'pack'].indexOf(a.category) -
+          ['fabric', 'trim', 'opa', 'pack'].indexOf(b.category) ||
+        b.amount - a.amount,
+    );
+};
+
 const sizeRank = (group) => {
   const match = String(group ?? '').match(/(\d+)\s*$/);
   return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
@@ -121,9 +156,11 @@ const buildPo = (cost, qty, shippedQty, terms, code) => {
     laborCost,
     bom: [
       { category: 'fabric', itemName: 'Fabric', amount: round2(cost.m1) },
-      { category: 'trim', itemName: 'Trims', amount: round2(num(cost.m2) + num(cost.opa)) },
+      { category: 'trim', itemName: 'Trims', amount: round2(cost.m2) },
+      { category: 'opa', itemName: 'OPA', amount: round2(cost.opa) },
       { category: 'pack', itemName: 'Packaging materials', amount: round2(cost.m3) },
     ],
+    materialDetails: parseMaterialDetails(cost.material_details),
     materialTotal,
     laborOps: [
       { opCode: 'cut', opName: 'Cutting', minutes: 0, cost: round2(cost.cut) },
@@ -168,9 +205,11 @@ const withMaterial = (po, material) => {
     ...po,
     bom: [
       { category: 'fabric', itemName: 'Fabric', amount: m1 },
-      { category: 'trim', itemName: 'Trims', amount: round2(m2 + opa) },
+      { category: 'trim', itemName: 'Trims', amount: m2 },
+      { category: 'opa', itemName: 'OPA', amount: opa },
       { category: 'pack', itemName: 'Packaging materials', amount: m3 },
     ],
+    materialDetails: parseMaterialDetails(material.material_details),
     materialTotal: Number.isFinite(Number(material.m_ttl))
       ? round2(material.m_ttl)
       : round2(m1 + m2 + m3 + opa),
@@ -192,8 +231,10 @@ const buildEmptyPo = (code, suffix) => ({
   bom: [
     { category: 'fabric', itemName: 'Fabric', amount: 0 },
     { category: 'trim', itemName: 'Trims', amount: 0 },
+    { category: 'opa', itemName: 'OPA', amount: 0 },
     { category: 'pack', itemName: 'Packaging materials', amount: 0 },
   ],
+  materialDetails: [],
   materialTotal: 0,
   laborOps: [
     { opCode: 'cut', opName: 'Cutting', minutes: 0, cost: 0 },

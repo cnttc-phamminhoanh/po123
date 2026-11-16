@@ -56,6 +56,7 @@ const buildCostSchema = (t: Translate) =>
     laborRate: z.number().min(0, t('zodMustBeNonNeg')),
     fabric: z.number().min(0, t('zodMustBeNonNeg')),
     trim: z.number().min(0, t('zodMustBeNonNeg')),
+    opa: z.number().min(0, t('zodMustBeNonNeg')),
     pack: z.number().min(0, t('zodMustBeNonNeg')),
     cut: z.number().min(0, t('zodMustBeNonNeg')),
     pri: z.number().min(0, t('zodMustBeNonNeg')),
@@ -106,6 +107,7 @@ const toFormValues = (po: PoCostDetail): CostFormData => ({
   laborRate: po.laborRate,
   fabric: bomAmount(po, 'fabric'),
   trim: bomAmount(po, 'trim'),
+  opa: bomAmount(po, 'opa'),
   pack: bomAmount(po, 'pack'),
   cut: minutesOf(po, 'cut'),
   pri: minutesOf(po, 'pri'),
@@ -136,6 +138,7 @@ const toRequest = (po: PoCostDetail, data: CostFormData): UpdatePoCostRequest =>
       amount: data.fabric,
     },
     { category: 'trim', itemName: bomItemName(po, 'trim'), amount: data.trim },
+    { category: 'opa', itemName: bomItemName(po, 'opa'), amount: data.opa },
     { category: 'pack', itemName: bomItemName(po, 'pack'), amount: data.pack },
   ],
   laborOps: [
@@ -214,6 +217,7 @@ const CostForm = ({ po, saving, onCancel, onSubmit }: CostFormProps) => {
       | 'laborRate'
       | 'fabric'
       | 'trim'
+      | 'opa'
       | 'pack'
       | 'cut'
       | 'pri'
@@ -290,9 +294,10 @@ const CostForm = ({ po, saving, onCancel, onSubmit }: CostFormProps) => {
 
             <section className="po-form-section">
               <h3>{t('materialsSection')}</h3>
-              <div className="po-form-grid">
+              <div className="po-form-grid po-form-grid--four">
                 {numberInput('fabric', t('seriesFabric'), '0.01')}
                 {numberInput('trim', t('seriesTrim'), '0.01')}
+                {numberInput('opa', t('seriesOpa'), '0.01')}
                 {numberInput('pack', t('seriesPack'), '0.01')}
               </div>
             </section>

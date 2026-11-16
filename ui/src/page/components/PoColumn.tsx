@@ -1,11 +1,10 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import { ChevronDown, ChevronsDown } from 'lucide-react';
 import type { BomCategory, PoCostDetail } from '../../types';
 import {
   GROUP_NAMES,
   LABOR_SERIES,
-  MATERIAL_SERIES,
   OTHER_SERIES,
   bomAmount,
   laborOpCost,
@@ -79,27 +78,101 @@ const GroupBlock = ({
   );
 };
 
-const matCellValue = (po: PoCostDetail, category: BomCategory): number => {
-  if (category === 'fabric') return bomAmount(po, 'fabric');
-  if (category === 'pack') return bomAmount(po, 'pack');
-  return bomAmount(po, 'trim');
-};
+const matCellValue = (po: PoCostDetail, category: BomCategory): number =>
+  bomAmount(po, category);
 
-const MatSumRow = ({ po }: { po: PoCostDetail }) => {
-  const cells: { tag: string; value: number }[] = [
-    { tag: 'M1', value: matCellValue(po, 'fabric') },
-    { tag: 'M2', value: matCellValue(po, 'trim') },
-    { tag: 'M3', value: matCellValue(po, 'pack') },
-  ];
+const MAT_SUM_CELLS: {
+  tag: string;
+  category: BomCategory;
+  labelKey: 'seriesFabric' | 'seriesTrim' | 'seriesOpa' | 'seriesPack';
+}[] = [
+  { tag: 'M1', category: 'fabric', labelKey: 'seriesFabric' },
+  { tag: 'M2', category: 'trim', labelKey: 'seriesTrim' },
+  { tag: 'M3', category: 'pack', labelKey: 'seriesPack' },
+  { tag: 'OPA', category: 'opa', labelKey: 'seriesOpa' },
+];
+
+const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) => {
+  const t = useT();
+  const [openCategory, setOpenCategory] = useState<BomCategory | null>('fabric');
+
+  useEffect(() => {
+    if (groupOpen) setOpenCategory('fabric');
+  }, [groupOpen]);
+  const activeCell = MAT_SUM_CELLS.find((cell) => cell.category === openCategory) ?? null;
+  const details = openCategory
+    ? po.materialDetails.filter((line) => line.category === openCategory)
+    : [];
+
   return (
-    <div className="mat-sum">
-      {cells.map((cell) => (
-        <div className="mat-sum-cell" key={cell.tag}>
-          <span className="mat-sum-tag">{cell.tag}</span>
-          <span className="mat-sum-value">{money(cell.value)}</span>
+    <>
+      <div className="mat-sum">
+        {MAT_SUM_CELLS.map((cell) => {
+          const isOpen = openCategory === cell.category;
+          return (
+            <button
+              type="button"
+              className={`mat-sum-cell${isOpen ? ' mat-sum-cell--open' : ''}`}
+              key={cell.tag}
+              aria-expanded={isOpen}
+              title={`${t('materialDetailTitle', {
+                tag: cell.tag,
+                category: t(cell.labelKey),
+              })}`}
+              onClick={() => setOpenCategory(isOpen ? null : cell.category)}
+            >
+              <span className="mat-sum-tag">{cell.tag}</span>
+              <span className="mat-sum-value">{money(matCellValue(po, cell.category))}</span>
+              <ChevronDown size={11} className="mat-sum-caret" />
+            </button>
+          );
+        })}
+      </div>
+
+      {activeCell ? (
+        <div className="mat-detail">
+          <div className="mat-detail-head">
+            <span>
+              {t('materialDetailTitle', {
+                tag: activeCell.tag,
+                category: t(activeCell.labelKey),
+              })}
+            </span>
+            <button
+              type="button"
+              className="mat-detail-close"
+              aria-label={t('close')}
+              onClick={() => setOpenCategory(null)}
+            >
+              ×
+            </button>
+          </div>
+
+          {details.length > 0 ? (
+            <>
+              <div className="mat-detail-row mat-detail-row--head">
+                <span>{t('materialCode')}</span>
+                <span>{t('materialName')}</span>
+                <span>{t('materialAmount')}</span>
+              </div>
+              <div className="mat-detail-list">
+                {details.map((line, lineIndex) => (
+                  <div className="mat-detail-row" key={`${line.category}-${line.code}-${lineIndex}`}>
+                    <span className="mat-detail-code">{line.code || '—'}</span>
+                    <span className="mat-detail-name" title={line.name || '—'}>
+                      {line.name || '—'}
+                    </span>
+                    <span className="mat-detail-amount">{money(line.amount)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="mat-detail-empty">{t('materialDetailEmpty')}</p>
+          )}
         </div>
-      ))}
-    </div>
+      ) : null}
+    </>
   );
 };
 
@@ -161,12 +234,6 @@ const PoColumn = ({
       window.removeEventListener('resize', measure);
     };
   }, [index, openGroups]);
-
-  const materialItems: MiniChartItem[] = MATERIAL_SERIES.map((series) => ({
-    label: t(series.labelKey),
-    value: bomAmount(po, series.key),
-    color: series.color,
-  }));
 
   const laborItems: MiniChartItem[] = LABOR_SERIES
     .filter(
@@ -261,14 +328,7 @@ const PoColumn = ({
           onToggle={() => onToggleGroup('materials')}
           master={masterButton}
         >
-          <MiniChart
-            items={materialItems}
-            footLeft={t('perUnitUsd')}
-            footRight={t('ofCost', {
-              pct: pct1(po.unitCost > 0 ? (po.materialTotal / po.unitCost) * 100 : 0),
-            })}
-            lead={<MatSumRow po={po} />}
-          />
+          <MatSumRow po={po} groupOpen={openGroups.materials} />
         </GroupBlock>
 
         <GroupBlock

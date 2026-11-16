@@ -122,9 +122,25 @@ material_raw AS (
       WHEN b.base_name IS NOT NULL THEN LOWER(LEFT(b.base_name, 2))
       ELSE LOWER(LEFT(m.goods_no, 2))
     END AS mat_type,
+    m.goods_no AS mat_no,
     m.sheet_amt
   FROM sal_po_costing3 m WITH (NOLOCK)
   LEFT JOIN bas_base_code b WITH (NOLOCK) ON b.base_code = m.mat_flag AND b.code_type = '338'
+),
+material_detail AS (
+  SELECT
+    sheet_no,
+    CASE mat_type
+      WHEN 'm1' THEN 'fabric'
+      WHEN 'm2' THEN 'trim'
+      WHEN 'm3' THEN 'pack'
+      WHEN 'b' THEN 'opa'
+    END AS category,
+    ISNULL(mat_no, '') AS code,
+    SUM(ISNULL(sheet_amt, 0)) / 1000.0 AS amount
+  FROM material_raw
+  WHERE mat_type IN ('m1', 'm2', 'm3', 'b')
+  GROUP BY sheet_no, mat_type, mat_no
 ),
 material AS (
   SELECT
@@ -267,7 +283,19 @@ SELECT TOP 1
   ISNULL(l.l_ttl, 0) AS l_ttl,
   ISNULL(e.exp, 0) AS exp,
   ISNULL(x.qc_exp, 0) AS qc_exp,
-  ISNULL(x.freight_exp, 0) AS freight_exp
+  ISNULL(x.freight_exp, 0) AS freight_exp,
+  (
+    SELECT
+      d.category,
+      d.code,
+      ISNULL(bg.goods_name, '') AS name,
+      d.amount
+    FROM material_detail d
+    LEFT JOIN bas_goods bg WITH (NOLOCK) ON bg.goods_no = d.code
+    WHERE d.sheet_no = h.sheet_no
+      AND d.amount <> 0
+    FOR JSON PATH
+  ) AS material_details
 FROM po_header h
 LEFT JOIN material m ON m.sheet_no = h.sheet_no
 LEFT JOIN labor l ON l.sheet_no = h.sheet_no

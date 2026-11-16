@@ -27,7 +27,7 @@ DECLARE @lvl int = 0;
 
 DROP TABLE IF EXISTS #cand, #fcand, #fg, #so, #so_sz, #sg_sz, #grp_n, #sz_best,
   #line_n, #line_grp, #q0, #q, #bq_todo, #bq_done, #bq_sheet, #bl, #use,
-  #b2, #plans, #rate, #po, #money, #res, #out;
+  #b2, #plans, #rate, #po, #money, #res_detail, #res, #out;
 
 CREATE TABLE #out (
   size_grp VARCHAR(30),
@@ -219,8 +219,24 @@ GROUP BY b.f_goods, b.mat_no, b.mat_cat;
 
 CREATE CLUSTERED INDEX ix ON #money (f_goods, mat_no);
 
+CREATE TABLE #res_detail (
+  size_grp VARCHAR(30),
+  mat_no VARCHAR(30),
+  mat_cat VARCHAR(2),
+  usd float
+);
+
 IF @g = 'COMMON-999'
 BEGIN
+  INSERT INTO #res_detail
+  SELECT
+    'COMMON-999',
+    mat_no,
+    mat_cat,
+    SUM(usd)
+  FROM #money
+  GROUP BY mat_no, mat_cat;
+
   INSERT INTO #out
   SELECT
     'COMMON-999',
@@ -489,12 +505,18 @@ BEGIN
       SUM(qty) OVER (PARTITION BY f_goods, mat_no) AS tq
     FROM need
   )
+  INSERT INTO #res_detail
   SELECT
     size_grp,
+    mat_no,
     mat_cat,
     SUM(usd * CASE WHEN tn > 0 THEN need / tn ELSE qty / NULLIF(tq, 0) END) AS usd
-  INTO #res
   FROM a
+  GROUP BY size_grp, mat_no, mat_cat;
+
+  SELECT size_grp, mat_cat, SUM(usd) AS usd
+  INTO #res
+  FROM #res_detail
   GROUP BY size_grp, mat_cat;
 
   INSERT INTO #out
@@ -521,6 +543,24 @@ SELECT
   ISNULL(opa, 0) / NULLIF(qty, 0) AS opa,
   (
     ISNULL(m1, 0) + ISNULL(m2, 0) + ISNULL(m3, 0) + ISNULL(opa, 0)
-  ) / NULLIF(qty, 0) AS m_ttl
+  ) / NULLIF(qty, 0) AS m_ttl,
+  (
+    SELECT
+      CASE d.mat_cat
+        WHEN 'M1' THEN 'fabric'
+        WHEN 'M2' THEN 'trim'
+        WHEN 'M3' THEN 'pack'
+        WHEN 'B' THEN 'opa'
+      END AS category,
+      d.mat_no AS code,
+      ISNULL(g.goods_name, '') AS name,
+      d.usd / NULLIF(o.qty, 0) AS amount
+    FROM #res_detail d
+    JOIN #out o ON o.size_grp = d.size_grp
+    LEFT JOIN bas_goods g WITH (NOLOCK) ON g.goods_no = d.mat_no
+    WHERE d.usd <> 0
+      AND d.mat_cat IN ('M1', 'M2', 'M3', 'B')
+    FOR JSON PATH
+  ) AS material_details
 FROM #out;
 `;

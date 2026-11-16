@@ -729,6 +729,18 @@
   animation: chart-in 0.18s ease both;
 }
 
+/* Nhóm vật tư chỉ còn 4 ô tổng, không giữ chiều cao 150px của mini chart. */
+.po-chart[data-group='materials'] {
+  min-height: 0;
+  justify-content: flex-start;
+  gap: 0;
+  padding: 10px 0 8px;
+}
+
+.po-chart[data-group='materials'] .mat-sum {
+  margin: 0 10px;
+}
+
 @keyframes chart-in {
   from { opacity: 0; transform: translateY(-3px); }
   to { opacity: 1; transform: translateY(0); }
@@ -761,9 +773,15 @@
   gap: 8px 12px;
 }
 
+/* Giữ đủ chiều cao 5 hàng cho nhân công, kể cả khi PO không có Overhead. */
+.po-chart[data-group='labors'] .mini-grid {
+  min-height: 110px;
+  align-content: start;
+}
+
 .mat-sum {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
   margin-bottom: 11px;
 }
@@ -771,13 +789,27 @@
 .mat-sum-cell {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: 6px;
+  justify-content: flex-start;
+  gap: 4px;
   min-width: 0;
-  padding: 7px 8px;
+  padding: 6px 6px;
   background: #FFFFFF;
   border: 1px solid #EFEFEF;
   border-radius: 8px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mat-sum-cell:hover {
+  border-color: #D8D0F2;
+  background: #FAF8FF;
+}
+
+.mat-sum-cell--open {
+  border-color: #6E57DA;
+  background: #F6F2FF;
 }
 
 .mat-sum-tag {
@@ -789,11 +821,134 @@
 }
 
 .mat-sum-value {
-  font-size: 12px;
+  margin-left: auto;
+  font-size: 11.5px;
   font-weight: 600;
   color: #1A1A1A;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+.mat-sum-caret {
+  flex: none;
+  color: #8A8A8A;
+  transition: transform 0.15s ease;
+}
+
+.mat-sum-cell--open .mat-sum-caret {
+  color: #6E57DA;
+  transform: rotate(180deg);
+}
+
+.mat-detail {
+  display: flex;
+  flex-direction: column;
+  align-self: stretch;
+  box-sizing: border-box;
+  width: 100%;
+  height: 150px;
+  margin: 8px 0 10px;
+  padding: 9px 10px;
+  background: #FBF9FF;
+  border: 1px solid #E7E1F8;
+  border-radius: 8px;
+}
+
+.mat-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 7px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: #4F3AA6;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.mat-detail-close {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: #6F6B7A;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.mat-detail-list {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 5px;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: #CFC3F4 transparent;
+}
+
+.mat-detail-list::-webkit-scrollbar { width: 5px; }
+.mat-detail-list::-webkit-scrollbar-track { background: transparent; }
+.mat-detail-list::-webkit-scrollbar-thumb {
+  background: #CFC3F4;
+  border-radius: 999px;
+}
+.mat-detail-list::-webkit-scrollbar-thumb:hover { background: #B2A0EF; }
+
+.mat-detail-row {
+  display: grid;
+  grid-template-columns: 80px minmax(0, 1fr) 56px;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 10.5px;
+  color: #333333;
+}
+
+.mat-detail-row--head {
+  margin-bottom: 5px;
+  padding-bottom: 3px;
+  border-bottom: 1px solid #EEE8FA;
+  color: #8A8A8A;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.mat-detail-row--head span:last-child {
+  text-align: right;
+}
+
+.mat-detail-code {
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-weight: 600;
+  color: #4F3AA6;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mat-detail-name {
+  overflow: hidden;
+  color: #666666;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mat-detail-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mat-detail-empty {
+  margin: 0;
+  font-size: 10.5px;
+  color: #8A8A8A;
 }
 
 .mini-item {
@@ -2191,6 +2346,9 @@
   .mat-sum,
   .price-row,
   .mini-item { break-inside: avoid; }
+
+  .mat-detail { height: auto; overflow: visible; }
+  .mat-detail-list { overflow: visible; }
 
   [data-sonner-toaster],
   [data-radix-popper-content-wrapper] { display: none !important; }
