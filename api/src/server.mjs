@@ -2,11 +2,14 @@ import cors from 'cors';
 import express from 'express';
 
 import { config } from './config.mjs';
-import { closePool, pingDatabase } from './db.mjs';
+import { closePool, pingDatabase, warmupPools } from './db.mjs';
 import { authRouter } from './auth.mjs';
 import { bomRouter } from './routes.mjs';
 
 const app = express();
+
+// API chạy sau Nginx trên cùng máy: cần tin một lớp proxy để req.ip là IP thật của người dùng, không phải 127.0.0.1 dùng chung cho mọi người.
+app.set('trust proxy', 1);
 
 app.use(cors({ origin: config.corsOrigin }));
 app.use(express.json({ limit: '2mb' }));
@@ -54,6 +57,14 @@ app.use((error, _req, res, _next) => {
     },
   });
 });
+
+try {
+  const startedAt = Date.now();
+  await warmupPools();
+  console.info(`[api] DB pools sẵn sàng sau ${Date.now() - startedAt}ms`);
+} catch (error) {
+  console.warn('[api] Không làm nóng được DB pool:', error.message);
+}
 
 const server = app.listen(config.port, config.host, () => {
   console.info(`[api] API nghe tại http://${config.host}:${config.port}`);

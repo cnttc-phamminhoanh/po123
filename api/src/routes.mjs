@@ -5,7 +5,7 @@ import { config } from './config.mjs';
 import { query } from './db.mjs';
 import { requireAuth } from './auth.mjs';
 import { findStylePhoto, photoUrlFor, recordPhotoUpload, saveStylePhoto } from './photo-store.mjs';
-import { getLatestStyle, getStyleDetail, getStyleList, styleExists } from './service.mjs';
+import { getLatestStyle, getStyleDetail, getStyleList, styleExists, getCacheStats } from './service.mjs';
 import { SQL_DEBUG_COUNTS } from './sql.mjs';
 
 const asyncRoute = (handler) => (req, res, next) => {
@@ -27,6 +27,31 @@ const upload = multer({
     callback(error);
   },
 });
+
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+const normalizeIp = (value) =>
+  String(value ?? '')
+    .trim()
+    .replace(/^::ffff:/i, '');
+
+const photoAccessContext = (req) => {
+  const clientIp = normalizeIp(req.ip ?? req.socket?.remoteAddress ?? '');
+  const requestHost = String(req.headers.host ?? '').trim();
+  const origin = String(req.headers.origin ?? '').trim();
+  const accessHost = origin.replace(/^https?:\/\//i, '') || requestHost;
+  let hostName = accessHost.toLowerCase();
+  if (hostName.startsWith('[')) {
+    hostName = hostName.slice(1, hostName.indexOf(']'));
+  } else {
+    hostName = hostName.split(':')[0];
+  }
+  const isLocal = LOOPBACK_HOSTS.has(hostName) || LOOPBACK_HOSTS.has(clientIp);
+  return {
+    source: isLocal ? 'local' : 'server',
+    host: accessHost,
+    clientIp,
+  };
+};
 
 export const bomRouter = Router();
 
@@ -52,6 +77,13 @@ bomRouter.get(
 );
 
 bomRouter.get(
+  '/debug/cache',
+  asyncRoute(async (_req, res) => {
+    res.json(getCacheStats());
+  }),
+);
+
+bomRouter.get(
   '/debug/counts',
   asyncRoute(async (_req, res) => {
     const rows = await query(SQL_DEBUG_COUNTS);
@@ -72,7 +104,12 @@ bomRouter.post(
       return;
     }
     const saved = await saveStylePhoto(code, req.file);
-    const photoUpload = await recordPhotoUpload(code, saved.fileName, req.user);
+    const photoUpload = await recordPhotoUpload(
+      code,
+      saved.fileName,
+      req.user,
+      photoAccessContext(req),
+    );
     res.status(201).json({ ...saved, photoUpload });
   }),
 );
@@ -103,8 +140,7 @@ bomRouter.get(
       req.query.sizeGroup ? String(req.query.sizeGroup) : undefined,
     );
     if (detail) {
-      detail.photoUrl = await photoUrlFor(detail.code);
-      res.json(detail);
+      res.json({ ...detail, photoUrl: await photoUrlFor(detail.code) });
       return;
     }
     res.status(404).json({

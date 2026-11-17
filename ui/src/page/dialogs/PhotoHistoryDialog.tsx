@@ -110,6 +110,12 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
     return entry.uploadedBy && entry.uploadedBy !== name ? entry.uploadedBy : '';
   };
 
+  const accessSourceLabel = (entry: PhotoHistoryEntry): string => {
+    if (entry.accessSource === 'local') return t('historySourceLocal');
+    if (entry.accessSource === 'server') return t('historySourceServer');
+    return '-';
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
@@ -210,6 +216,8 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
                   <span>{t('historyTime')}</span>
                   <span>{t('historyStyle')}</span>
                   <span>{t('historyUploader')}</span>
+                  <span>{t('historySource')}</span>
+                  <span>{t('historyIp')}</span>
                   <span>{t('historyFile')}</span>
                 </div>
                 {items.map((entry) => (
@@ -227,6 +235,19 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
                           {uploaderSub(entry)}
                         </span>
                       ) : null}
+                    </span>
+                    <span className="history-source">
+                      <span className="history-source-name">
+                        {accessSourceLabel(entry)}
+                      </span>
+                      {entry.accessHost ? (
+                        <span className="history-source-host" title={entry.accessHost}>
+                          {entry.accessHost}
+                        </span>
+                      ) : null}
+                    </span>
+                    <span className="history-ip" title={entry.clientIp}>
+                      {entry.clientIp || '-'}
                     </span>
                     <span className="history-file" title={entry.fileName}>
                       {entry.fileName || '-'}

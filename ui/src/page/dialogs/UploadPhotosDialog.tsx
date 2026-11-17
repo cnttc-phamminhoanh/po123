@@ -5,6 +5,7 @@ import { uploadStylePhoto } from '../../lib/upload';
 import { ImageUp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
+import type { StyleDetail } from '../../types';
 import {
   Dialog,
   DialogContent,
@@ -119,7 +120,7 @@ const UploadPhotosDialog = ({
   const handleUpload = async () => {
     if (busy || tasks.length === 0) return;
     setBusy(true);
-    const uploaded = new Set<string>();
+    const uploaded = new Map<string, string>();
     try {
       for (const task of tasks) {
         if (task.status === 'done') continue;
@@ -132,8 +133,13 @@ const UploadPhotosDialog = ({
         }
         patchTask(task.id, { status: 'uploading', message: t('uploading') });
         try {
-          await uploadStylePhoto(task.styleCode, task.file);
-          uploaded.add(task.styleCode);
+          const saved = await uploadStylePhoto(task.styleCode, task.file);
+          uploaded.set(task.styleCode, saved.photoUrl);
+          // Dùng ngay URL vừa upload để ảnh hiện lên, không chờ tải lại cả bảng chi phí.
+          queryClient.setQueriesData<StyleDetail>(
+            { queryKey: ['bom', 'style', task.styleCode] },
+            (old) => (old ? { ...old, photoUrl: saved.photoUrl } : old),
+          );
           patchTask(task.id, { status: 'done', message: t('linkedToStyle') });
         } catch (error) {
           logger.error('上传样式图片失败', error);
@@ -148,7 +154,7 @@ const UploadPhotosDialog = ({
         }
       }
 
-      uploaded.forEach((styleCode: string) => {
+      uploaded.forEach((_photoUrl: string, styleCode: string) => {
         void queryClient.invalidateQueries({
           queryKey: ['bom', 'style', styleCode],
         });

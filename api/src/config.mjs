@@ -23,6 +23,11 @@ export const config = {
     dir: env.PHOTO_DIR || 'C:\\po123-data\\photos',
     maxBytes: asPositiveNumber(env.PHOTO_MAX_MB, 8) * 1024 * 1024,
   },
+  cache: {
+    styleDetailTtlMs: asPositiveNumber(env.STYLE_DETAIL_CACHE_TTL_MS, 5 * 60 * 1000),
+    latestStyleTtlMs: asPositiveNumber(env.STYLE_LATEST_CACHE_TTL_MS, 60 * 1000),
+    maxEntries: asPositiveNumber(env.STYLE_CACHE_MAX_ENTRIES, 50),
+  },
   db: {
     server: env.DB_SERVER ?? 'localhost',
     port: Number(env.DB_PORT ?? 1433),

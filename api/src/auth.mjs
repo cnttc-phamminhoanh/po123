@@ -20,8 +20,13 @@ const LOGIN_MAX_ATTEMPTS = 20;
 
 const loginAttempts = new Map();
 
-const clientKey = (req) =>
+const clientIp = (req) =>
   String(req.ip ?? req.socket?.remoteAddress ?? 'unknown');
+
+// Mỗi tài khoản từng IP có bộ đếm riêng: một người nhập sai không khóa
+// tài khoản của người khác dùng cùng máy/Nginx.
+const clientKey = (req, username) =>
+  `${clientIp(req)}|${String(username ?? '').trim().toLowerCase()}`;
 
 const isRateLimited = (key, now) => {
   const entry = loginAttempts.get(key);
@@ -229,7 +234,7 @@ authRouter.post(
       return;
     }
 
-    const key = clientKey(req);
+    const key = clientKey(req, username);
     const now = Date.now();
     if (isRateLimited(key, now)) {
       authError(

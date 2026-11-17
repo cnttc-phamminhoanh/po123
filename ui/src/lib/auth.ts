@@ -64,6 +64,9 @@ export interface PhotoHistoryEntry {
   uploadedBy: string;
   uploadedByEmpNo: string;
   uploadedByName: string;
+  accessSource: string;
+  accessHost: string;
+  clientIp: string;
   uploadedAt: string;
 }
 

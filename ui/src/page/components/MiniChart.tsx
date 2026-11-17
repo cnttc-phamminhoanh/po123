@@ -10,12 +10,11 @@ export interface MiniChartItem {
 
 interface MiniChartProps {
   items: MiniChartItem[];
-  footLeft: string;
   footRight: string;
   lead?: ReactNode;
 }
 
-const MiniChart = ({ items, footLeft, footRight, lead }: MiniChartProps) => {
+const MiniChart = ({ items, footRight, lead }: MiniChartProps) => {
   const total: number = items.reduce(
     (sum: number, item: MiniChartItem) => sum + item.value,
     0,
@@ -45,7 +44,6 @@ const MiniChart = ({ items, footLeft, footRight, lead }: MiniChartProps) => {
         ))}
       </div>
       <div className="mini-foot">
-        <span>{footLeft}</span>
         <span>{footRight}</span>
       </div>
     </>

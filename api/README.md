@@ -134,7 +134,8 @@ Lỗi trả theo dạng:
 
 - Mỗi style một ảnh; upload ảnh mới thay ảnh cũ.
 - Ảnh được chuẩn hoá khi upload: cắt viền thừa, thay nền sáng bằng xám `#F4F4F4`, đưa vào khung dọc 2:3 (1200 × 1800), lưu JPG.
-- Mỗi lần upload ghi một dòng vào `dbo.po_style_photo_audit`: style, file, tài khoản, mã nhân viên, thời điểm.
+- Mỗi lần upload ghi một dòng vào `dbo.po_style_photo_audit`: style, file, tài khoản, mã nhân viên, thời điểm, nguồn truy cập (`local`/`server`), host truy cập và IP máy upload.
+- DB mới tạo tự có 3 cột nguồn/IP. DB đã tồn tại phải chạy migration `api/sql/04-photo-audit-access-columns.sql` bằng tài khoản admin (app user không có quyền ALTER), rồi restart API. Trước khi migration, app vẫn upload bình thường nhưng 3 cột này để trống.
 - Ảnh nằm trên ổ đĩa tại `PHOTO_DIR`, không nằm trong git; cần sao lưu thư mục này.
 
 ## Cách lấy số liệu

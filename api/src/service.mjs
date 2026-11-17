@@ -1,4 +1,6 @@
 import { query, queryOld } from './db.mjs';
+import { config } from './config.mjs';
+import { createTtlCache } from './cache.mjs';
 import {
   SQL_LATEST_STYLE,
   SQL_PO1_COST,
@@ -24,6 +26,26 @@ const round2 = (value) => Math.round((num(value) + Number.EPSILON) * 100) / 100;
 const round4 = (value) => Math.round((num(value) + Number.EPSILON) * 10000) / 10000;
 
 const BOM_CATEGORIES = new Set(['fabric', 'trim', 'opa', 'pack']);
+
+/**
+ * Cache kết quả đọc từ ERP.
+ * - Chi tiết PO: 5 phút, tối đa 50 style.
+ * - Style mới nhất: 1 phút.
+ * Có thể chỉnh qua biến môi trường mà không cần sửa code.
+ */
+const styleDetailCache = createTtlCache({
+  name: 'style-detail',
+  ttlMs: config.cache.styleDetailTtlMs,
+  maxEntries: config.cache.maxEntries,
+});
+const latestStyleCache = createTtlCache({
+  name: 'latest-style',
+  ttlMs: config.cache.latestStyleTtlMs,
+  maxEntries: 1,
+});
+
+const styleDetailKey = (code, season, sizeGroup) =>
+  `${String(code ?? '').trim()}|${String(season ?? '').trim()}|${String(sizeGroup ?? '').trim()}`;
 
 /** SQL trả JSON để giữ được danh sách mã vật tư trong cùng một dòng kết quả. */
 const parseMaterialDetails = (value) => {
@@ -92,12 +114,13 @@ const moneyText = (value, digits = 2) =>
   Number.isFinite(Number(value)) ? Number(value).toFixed(digits) : '';
 
 const checkDateValue = (row) => {
-  if (!row?.check_date) return Number.NEGATIVE_INFINITY;
-  const date = row.check_date instanceof Date ? row.check_date : new Date(row.check_date);
+  const raw = row?.check_date ?? row?.create_date ?? row?.sheet_date;
+  if (!raw) return Number.NEGATIVE_INFINITY;
+  const date = raw instanceof Date ? raw : new Date(raw);
   return Number.isNaN(date.getTime()) ? Number.NEGATIVE_INFINITY : date.getTime();
 };
 
-/** Mới nhất theo check_date rồi sheet_no, giống điều kiện trong SQL chuẩn. */
+/** Mới nhất theo ngày duyệt, nếu chưa duyệt thì dùng ngày lập phiếu. */
 const latestByCheckDate = (rows) =>
   [...rows].sort((a, b) => {
     const diff = checkDateValue(b) - checkDateValue(a);
@@ -261,7 +284,7 @@ const buildEmptyPo = (code, suffix) => ({
   sizeGroups: [],
 });
 
-export const getLatestStyle = async () => {
+const loadLatestStyle = async () => {
   const rows = await query(SQL_LATEST_STYLE);
   if (rows.length === 0) return null;
   return {
@@ -269,6 +292,8 @@ export const getLatestStyle = async () => {
     season: toText(rows[0].season),
   };
 };
+
+export const getLatestStyle = () => latestStyleCache.load('latest', loadLatestStyle);
 
 export const styleExists = async (code) => {
   const rows = await query(SQL_STYLE_EXISTS, { style: code });
@@ -328,7 +353,7 @@ export const getStyleList = async () => {
   return { styles };
 };
 
-export const getStyleDetail = async (code, seasonParam, sizeGroupParam) => {
+const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
   const contextRows = await query(SQL_STYLE_CONTEXT, { style: code });
   if (contextRows.length === 0) return null;
 
@@ -601,3 +626,15 @@ export const getStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     pos,
   };
 };
+
+export const getStyleDetail = (code, seasonParam, sizeGroupParam) =>
+  styleDetailCache.load(styleDetailKey(code, seasonParam, sizeGroupParam), () =>
+    loadStyleDetail(code, seasonParam, sizeGroupParam),
+  );
+
+export const clearStyleDetailCache = () => styleDetailCache.clear();
+
+export const getCacheStats = () => ({
+  styleDetail: styleDetailCache.stats(),
+  latestStyle: latestStyleCache.stats(),
+});

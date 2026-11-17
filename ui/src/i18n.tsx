@@ -56,6 +56,10 @@ export const translations = {
     historyTime: 'Time',
     historyStyle: 'Style',
     historyUploader: 'Uploaded by',
+    historySource: 'Source',
+    historyIp: 'Upload IP',
+    historySourceLocal: 'Local dev',
+    historySourceServer: 'Server',
     historyFile: 'File',
     usersTitle: 'Manage user accounts',
     usersHint:
@@ -318,6 +322,10 @@ export const translations = {
     historyTime: 'Thời điểm',
     historyStyle: 'Mã style',
     historyUploader: 'Người upload',
+    historySource: 'Nguồn',
+    historyIp: 'IP upload',
+    historySourceLocal: 'Local dev',
+    historySourceServer: 'Máy chủ',
     historyFile: 'Tệp',
     usersTitle: 'Quản lý tài khoản',
     usersHint:

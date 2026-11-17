@@ -172,6 +172,14 @@ const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) 
           )}
         </div>
       ) : null}
+
+      <div className="mini-foot mat-sum-foot">
+        <span>
+          {t('ofCost', {
+            pct: pct1(po.unitCost > 0 ? (po.materialTotal / po.unitCost) * 100 : 0),
+          })}
+        </span>
+      </div>
     </>
   );
 };
@@ -238,7 +246,9 @@ const PoColumn = ({
   const laborItems: MiniChartItem[] = LABOR_SERIES
     .filter(
       (series) =>
-        series.key !== 'overhead' || laborOpCost(po, 'overhead') > 0,
+        series.key !== 'overhead' ||
+        index === 3 ||
+        laborOpCost(po, 'overhead') > 0,
     )
     .map((series) => ({
       label: t(series.labelKey),
@@ -341,7 +351,6 @@ const PoColumn = ({
         >
           <MiniChart
             items={laborItems}
-            footLeft={t('perUnitUsd')}
             footRight={t('ofCost', {
               pct: pct1(po.unitCost > 0 ? (po.laborCost / po.unitCost) * 100 : 0),
             })}
@@ -359,7 +368,6 @@ const PoColumn = ({
         >
           <MiniChart
             items={otherItems}
-            footLeft={t('perUnitUsd')}
             footRight={t('ofCost', {
               pct: pct1(po.unitCost > 0 ? (po.otherTotal / po.unitCost) * 100 : 0),
             })}

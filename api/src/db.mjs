@@ -19,7 +19,7 @@ const buildAuth = (dbConfig) =>
     }
     : { user: dbConfig.user, password: dbConfig.password };
 
-const createPool = (dbConfig, max) =>
+const createPool = (dbConfig, max, min) =>
   new sql.ConnectionPool({
     server: dbConfig.server,
     port: dbConfig.port,
@@ -27,7 +27,9 @@ const createPool = (dbConfig, max) =>
     encrypt: dbConfig.encrypt,
     trustServerCertificate: dbConfig.trustServerCertificate,
     options: dbConfig.options,
-    pool: { max, min: 0, idleTimeoutMillis: 30000 },
+    // Giữ sẵn vài kết nối để lần đầu mở trang không phải chờ mở kết nối
+    // qua đường truyền sang Hồng Kông.
+    pool: { max, min, idleTimeoutMillis: 5 * 60 * 1000 },
     ...buildAuth(dbConfig),
   });
 
@@ -38,7 +40,7 @@ const connectPool = (pool) =>
 
 export const getPool = () => {
   if (!poolPromise) {
-    const pool = createPool(config.db, 10);
+    const pool = createPool(config.db, 10, 6);
     poolPromise = connectPool(pool).catch((error) => {
       poolPromise = null;
       throw error;
@@ -58,7 +60,7 @@ export const getOldPool = () => {
     );
   }
   if (!oldPoolPromise) {
-    const pool = createPool(config.oldDb, 5);
+    const pool = createPool(config.oldDb, 5, 2);
     oldPoolPromise = connectPool(pool).catch((error) => {
       oldPoolPromise = null;
       throw error;
@@ -91,6 +93,25 @@ export const queryOld = async (text, params = {}) => {
 export const pingDatabase = async () => {
   await query('SELECT 1 AS ok');
   return true;
+};
+
+/**
+ * Mở sẵn các kết nối thường dùng ngay khi API khởi động.
+ * getStyleDetail chạy song song 6 truy vấn; nếu để mở kết nối lần đầu
+ * thì người dùng đầu tiên phải chờ 7-9 giây do độ trễ sang Hồng Kông.
+ */
+export const warmupPools = async () => {
+  const mainPool = await getPool();
+  await Promise.all(
+    Array.from({ length: 6 }, () => runQuery(mainPool, 'SELECT 1 AS ok')),
+  );
+
+  if (!config.oldDb.server) return;
+
+  const oldPool = await getOldPool();
+  await Promise.all(
+    Array.from({ length: 2 }, () => runQuery(oldPool, 'SELECT 1 AS ok')),
+  );
 };
 
 export const closePool = async () => {

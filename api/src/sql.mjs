@@ -25,8 +25,8 @@ SELECT TOP 1
   pn.season AS season
 FROM sal_po_costing1 pn WITH (NOLOCK)
 INNER JOIN bas_cust c WITH (NOLOCK) ON c.cust_no = pn.cust_no
-WHERE pn.sheet_sta = '1' AND pn.sheet_type = 'POCGGI' AND NULLIF(LTRIM(RTRIM(pn.def04)), '') IS NOT NULL
-ORDER BY pn.check_date DESC, pn.sheet_no DESC
+WHERE pn.sheet_type = 'POCGGI' AND NULLIF(LTRIM(RTRIM(pn.def04)), '') IS NOT NULL
+ORDER BY COALESCE(pn.create_date, pn.sheet_date) DESC, pn.sheet_no DESC
 `;
 
 export const SQL_DEBUG_COUNTS = `
@@ -52,13 +52,9 @@ SELECT
   MAX(pn.check_date) AS last_check_date,
   MAX(ISNULL(sg.goods_name, '')) AS goods_name
 FROM sal_po_costing1 pn WITH (NOLOCK)
-INNER JOIN bas_cust c WITH (NOLOCK)
-  ON c.cust_no = pn.cust_no
-LEFT JOIN smp_goods sg WITH (NOLOCK)
-  ON sg.goods_no = pn.goods_no
-WHERE pn.sheet_sta = '1'
-  AND pn.sheet_type = 'POCGGI'
-  AND NULLIF(LTRIM(RTRIM(pn.def04)), '') IS NOT NULL
+INNER JOIN bas_cust c WITH (NOLOCK) ON c.cust_no = pn.cust_no
+LEFT JOIN smp_goods sg WITH (NOLOCK) ON sg.goods_no = pn.goods_no
+WHERE pn.sheet_type = 'POCGGI' AND NULLIF(LTRIM(RTRIM(pn.def04)), '') IS NOT NULL
 GROUP BY
   CASE
     WHEN c.cust_name1 LIKE '%HADDAD%' THEN LEFT(REPLACE(pn.def04, ' ', ''), 8)
@@ -72,7 +68,7 @@ export const SQL_STYLE_EXISTS = `
 SELECT TOP 1 1 AS found
 FROM sal_po_costing1 pn WITH (NOLOCK)
 INNER JOIN bas_cust c WITH (NOLOCK) ON c.cust_no = pn.cust_no
-WHERE pn.sheet_sta = '1' AND pn.sheet_type = 'POCGGI' ${STYLE_FILTER}
+WHERE pn.sheet_type = 'POCGGI' ${STYLE_FILTER}
 `;
 
 export const SQL_STYLE_CONTEXT = `
@@ -86,7 +82,7 @@ SELECT
 FROM sal_po_costing1 pn WITH (NOLOCK)
 INNER JOIN bas_cust c WITH (NOLOCK) ON c.cust_no = pn.cust_no
 LEFT JOIN smp_goods sg WITH (NOLOCK) ON sg.goods_no = pn.goods_no
-WHERE pn.sheet_sta = '1' AND pn.sheet_type = 'POCGGI' ${STYLE_FILTER}
+WHERE pn.sheet_type = 'POCGGI' ${STYLE_FILTER}
 GROUP BY pn.sheet_no, pn.season, LTRIM(RTRIM(pn.terms)), pn.check_date, c.cust_name1
 ORDER BY pn.sheet_no ASC
 `;
@@ -107,22 +103,27 @@ export const SQL_PO1_COST = `
     pn.def08,
     ISNULL(sg.goods_name, '') AS goods_name,
     ISNULL(t.goods_type_desc, '') AS goods_type_desc,
-    ROW_NUMBER() OVER (ORDER BY pn.sheet_date DESC, pn.sheet_no DESC) AS rn
+    ROW_NUMBER() OVER (ORDER BY COALESCE(pn.create_date, pn.sheet_date) DESC, pn.sheet_no DESC) AS rn
   FROM sal_po_costing1 pn WITH (NOLOCK)
   INNER JOIN bas_cust c WITH (NOLOCK) ON c.cust_no = pn.cust_no
   LEFT JOIN smp_goods sg WITH (NOLOCK) ON sg.goods_no = pn.goods_no
   LEFT JOIN bas_goods_type t WITH (NOLOCK) ON t.goods_type = sg.goods_type
-  WHERE pn.sheet_sta = '1' AND pn.sheet_type = 'POCGGI' AND pn.season = @season AND LTRIM(RTRIM(pn.terms)) = @terms ${STYLE_FILTER}
+  WHERE pn.sheet_type = 'POCGGI' AND pn.season = @season AND LTRIM(RTRIM(pn.terms)) = @terms ${STYLE_FILTER}
 ),
 material_raw AS (
   SELECT
     m.sheet_no,
     CASE
-      WHEN b.base_name IS NULL AND m.goods_no IS NULL THEN 'xx'
+      WHEN m.mat_flag = '101' THEN 'm1'
+      WHEN m.mat_flag = '102' THEN 'm2'
+      WHEN m.mat_flag = '103' THEN 'm3'
       WHEN b.base_name IS NOT NULL THEN LOWER(LEFT(b.base_name, 2))
-      ELSE LOWER(LEFT(m.goods_no, 2))
+      WHEN m.goods_no IS NOT NULL THEN LOWER(LEFT(m.goods_no, 2))
+      ELSE 'xx'
     END AS mat_type,
     m.goods_no AS mat_no,
+    m.mat_flag,
+    m.goods_name AS mat_name,
     m.sheet_amt
   FROM sal_po_costing3 m WITH (NOLOCK)
   LEFT JOIN bas_base_code b WITH (NOLOCK) ON b.base_code = m.mat_flag AND b.code_type = '338'
@@ -136,11 +137,12 @@ material_detail AS (
       WHEN 'm3' THEN 'pack'
       WHEN 'b' THEN 'opa'
     END AS category,
-    ISNULL(mat_no, '') AS code,
+    COALESCE(NULLIF(mat_no, ''), NULLIF(LTRIM(RTRIM(mat_flag)), '')) AS code,
+    ISNULL(mat_name, '') AS name,
     SUM(ISNULL(sheet_amt, 0)) / 1000.0 AS amount
   FROM material_raw
   WHERE mat_type IN ('m1', 'm2', 'm3', 'b')
-  GROUP BY sheet_no, mat_type, mat_no
+  GROUP BY sheet_no, mat_type, mat_no, mat_flag, mat_name
 ),
 material AS (
   SELECT
@@ -185,8 +187,7 @@ labor AS (
   GROUP BY sheet_no
 ),
 expense_name AS (
-  SELECT
-    base_code, MAX(base_name) AS base_name
+  SELECT base_code, MAX(base_name) AS base_name
   FROM bas_base_code WITH (NOLOCK)
   GROUP BY base_code
 ),
@@ -230,8 +231,7 @@ expense_split AS (
   GROUP BY sheet_no
 ),
 expense AS (
-  SELECT
-    sheet_no, SUM(fee_usd) AS exp
+  SELECT sheet_no, SUM(fee_usd) AS exp
   FROM expense_type
   GROUP BY sheet_no
 ),
@@ -288,12 +288,11 @@ SELECT TOP 1
     SELECT
       d.category,
       d.code,
-      ISNULL(bg.goods_name, '') AS name,
+      COALESCE(NULLIF(d.name, ''), bg.goods_name, '') AS name,
       d.amount
     FROM material_detail d
     LEFT JOIN bas_goods bg WITH (NOLOCK) ON bg.goods_no = d.code
-    WHERE d.sheet_no = h.sheet_no
-      AND d.amount <> 0
+    WHERE d.sheet_no = h.sheet_no AND d.amount <> 0
     FOR JSON PATH
   ) AS material_details
 FROM po_header h
@@ -326,8 +325,7 @@ LEFT JOIN (
     o.ord_id,
     SUM(o.sheet_qty * o.add_flag * o.unit_rate) AS ship_qty
   FROM sal_out2 o WITH (NOLOCK)
-  INNER JOIN sal_out1 o1 WITH (NOLOCK)
-    ON o1.sheet_no = o.sheet_no
+  INNER JOIN sal_out1 o1 WITH (NOLOCK) ON o1.sheet_no = o.sheet_no
   WHERE o1.sheet_sta = '1' AND o.sheet_sta = '1'
   GROUP BY o.ord_no, o.ord_id
 ) ship ON ship.ord_no = s.sheet_no AND ship.ord_id = s.sheet_id
@@ -457,41 +455,58 @@ BEGIN
     uploaded_by NVARCHAR(64) NULL,
     uploaded_by_emp_no NVARCHAR(20) NULL,
     uploaded_by_name NVARCHAR(100) NULL,
+    access_source NVARCHAR(16) NULL,
+    access_host NVARCHAR(255) NULL,
+    client_ip NVARCHAR(64) NULL,
     uploaded_at DATETIME2 NOT NULL CONSTRAINT DF_po_style_photo_audit_at DEFAULT SYSUTCDATETIME()
   );
-END
 
-IF EXISTS (
-  SELECT 1
-  FROM sys.key_constraints
-  WHERE name = N'UQ_po_style_photo_audit_style'
-    AND parent_object_id = OBJECT_ID(N'dbo.po_style_photo_audit')
-)
-  ALTER TABLE dbo.po_style_photo_audit DROP CONSTRAINT UQ_po_style_photo_audit_style;
-
-IF NOT EXISTS (
-  SELECT 1
-  FROM sys.indexes
-  WHERE name = N'IX_po_style_photo_audit_style'
-    AND object_id = OBJECT_ID(N'dbo.po_style_photo_audit')
-)
   CREATE INDEX IX_po_style_photo_audit_style
     ON dbo.po_style_photo_audit (style_code, uploaded_at DESC);
+END
+`;
+
+/** Migration thêm 3 cột nguồn/IP; chạy bằng tài khoản admin (app user không có ALTER). */
+export const SQL_PHOTO_AUDIT_ACCESS_MIGRATION = `
+IF COL_LENGTH(N'dbo.po_style_photo_audit', N'access_source') IS NULL
+  ALTER TABLE dbo.po_style_photo_audit ADD access_source NVARCHAR(16) NULL;
+
+IF COL_LENGTH(N'dbo.po_style_photo_audit', N'access_host') IS NULL
+  ALTER TABLE dbo.po_style_photo_audit ADD access_host NVARCHAR(255) NULL;
+
+IF COL_LENGTH(N'dbo.po_style_photo_audit', N'client_ip') IS NULL
+  ALTER TABLE dbo.po_style_photo_audit ADD client_ip NVARCHAR(64) NULL;
+`;
+
+export const SQL_PHOTO_AUDIT_COLUMNS = `
+SELECT COUNT(1) AS n
+FROM sys.columns
+WHERE object_id = OBJECT_ID(N'dbo.po_style_photo_audit')
+  AND name IN (N'access_source', N'access_host', N'client_ip')
+`;
+
+export const SQL_PHOTO_AUDIT_TABLE_EXISTS = `
+SELECT CASE WHEN OBJECT_ID(N'dbo.po_style_photo_audit', N'U') IS NULL THEN 0 ELSE 1 END AS exists_flag
 `;
 
 export const SQL_PHOTO_AUDIT_INSERT = `
 INSERT INTO dbo.po_style_photo_audit
-  (style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name, uploaded_at)
+  (style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name,
+   access_source, access_host, client_ip, uploaded_at)
 OUTPUT
   INSERTED.style_code, INSERTED.file_name, INSERTED.uploaded_by,
-  INSERTED.uploaded_by_emp_no, INSERTED.uploaded_by_name, INSERTED.uploaded_at
+  INSERTED.uploaded_by_emp_no, INSERTED.uploaded_by_name,
+  INSERTED.access_source, INSERTED.access_host, INSERTED.client_ip,
+  INSERTED.uploaded_at
 VALUES
-  (@style_code, @file_name, @uploaded_by, @uploaded_by_emp_no, @uploaded_by_name, SYSUTCDATETIME());
+  (@style_code, @file_name, @uploaded_by, @uploaded_by_emp_no, @uploaded_by_name,
+   @access_source, @access_host, @client_ip, SYSUTCDATETIME());
 `;
 
 export const SQL_PHOTO_AUDIT_BY_STYLE = `
 SELECT TOP 1
-  style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name, uploaded_at
+  style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name,
+  access_source, access_host, client_ip, uploaded_at
 FROM dbo.po_style_photo_audit
 WHERE style_code = @style_code
 ORDER BY uploaded_at DESC, id DESC
@@ -499,7 +514,8 @@ ORDER BY uploaded_at DESC, id DESC
 
 export const SQL_PHOTO_AUDIT_SEARCH = `
 SELECT
-  id, style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name, uploaded_at
+  id, style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name,
+  access_source, access_host, client_ip, uploaded_at
 FROM dbo.po_style_photo_audit
 WHERE (@style_filter = N'' OR style_code LIKE N'%' + @style_filter + N'%')
   AND (
@@ -528,3 +544,39 @@ WHERE (@style_filter = N'' OR style_code LIKE N'%' + @style_filter + N'%')
   AND (@date_to IS NULL OR uploaded_at < DATEADD(day, 1, CAST(@date_to AS date)))
 `;
 
+/** Fallback cho DB chưa chạy migration 3 cột nguồn/IP. */
+export const SQL_PHOTO_AUDIT_LEGACY_INSERT = `
+INSERT INTO dbo.po_style_photo_audit
+  (style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name, uploaded_at)
+OUTPUT
+  INSERTED.style_code, INSERTED.file_name, INSERTED.uploaded_by,
+  INSERTED.uploaded_by_emp_no, INSERTED.uploaded_by_name, INSERTED.uploaded_at
+VALUES
+  (@style_code, @file_name, @uploaded_by, @uploaded_by_emp_no, @uploaded_by_name,
+   SYSUTCDATETIME());
+`;
+
+export const SQL_PHOTO_AUDIT_LEGACY_BY_STYLE = `
+SELECT TOP 1
+  style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name, uploaded_at
+FROM dbo.po_style_photo_audit
+WHERE style_code = @style_code
+ORDER BY uploaded_at DESC, id DESC
+`;
+
+export const SQL_PHOTO_AUDIT_LEGACY_SEARCH = `
+SELECT
+  id, style_code, file_name, uploaded_by, uploaded_by_emp_no, uploaded_by_name, uploaded_at
+FROM dbo.po_style_photo_audit
+WHERE (@style_filter = N'' OR style_code LIKE N'%' + @style_filter + N'%')
+  AND (
+    @uploader_filter = N''
+    OR uploaded_by LIKE N'%' + @uploader_filter + N'%'
+    OR uploaded_by_emp_no LIKE N'%' + @uploader_filter + N'%'
+    OR uploaded_by_name LIKE N'%' + @uploader_filter + N'%'
+  )
+  AND (@date_from IS NULL OR uploaded_at >= CAST(@date_from AS date))
+  AND (@date_to IS NULL OR uploaded_at < DATEADD(day, 1, CAST(@date_to AS date)))
+ORDER BY uploaded_at DESC, id DESC
+OFFSET @row_offset ROWS FETCH NEXT @row_limit ROWS ONLY
+`;

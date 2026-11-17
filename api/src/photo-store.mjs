@@ -7,10 +7,15 @@ import { config } from './config.mjs';
 import { query } from './db.mjs';
 import {
   SQL_PHOTO_AUDIT_BY_STYLE,
+  SQL_PHOTO_AUDIT_COLUMNS,
   SQL_PHOTO_AUDIT_INSERT,
+  SQL_PHOTO_AUDIT_LEGACY_BY_STYLE,
+  SQL_PHOTO_AUDIT_LEGACY_INSERT,
+  SQL_PHOTO_AUDIT_LEGACY_SEARCH,
   SQL_PHOTO_AUDIT_SCHEMA,
   SQL_PHOTO_AUDIT_SEARCH,
   SQL_PHOTO_AUDIT_SEARCH_COUNT,
+  SQL_PHOTO_AUDIT_TABLE_EXISTS,
 } from './sql.mjs';
 
 const storeDir = path.resolve(config.photo.dir);
@@ -184,10 +189,25 @@ const buildPhotoUrl = (styleCode, version) =>
   `/api/bom/styles/${encodeURIComponent(String(styleCode))}/photo?v=${version}`;
 
 let auditReadyPromise = null;
+let auditHasAccessColumns = false;
 
 const ensurePhotoAuditReady = async () => {
   if (!auditReadyPromise) {
-    auditReadyPromise = query(SQL_PHOTO_AUDIT_SCHEMA).catch((error) => {
+    auditReadyPromise = (async () => {
+      const existsRows = await query(SQL_PHOTO_AUDIT_TABLE_EXISTS);
+      const tableExists = Number(existsRows[0]?.exists_flag ?? 0) === 1;
+      if (!tableExists) {
+        await query(SQL_PHOTO_AUDIT_SCHEMA);
+      }
+      const columnRows = await query(SQL_PHOTO_AUDIT_COLUMNS);
+      auditHasAccessColumns = Number(columnRows[0]?.n ?? 0) === 3;
+      if (!auditHasAccessColumns) {
+        console.warn(
+          '[photo] Bảng lịch sử upload chưa có 3 cột access_source/access_host/client_ip; ' +
+            'đang dùng chế độ cũ. Hãy chạy migration bằng tài khoản admin.',
+        );
+      }
+    })().catch((error) => {
       auditReadyPromise = null;
       throw error;
     });
@@ -207,6 +227,9 @@ const toPhotoUpload = (row) => {
     uploadedBy: row.uploaded_by ?? '',
     uploadedByEmpNo: row.uploaded_by_emp_no ?? '',
     uploadedByName: row.uploaded_by_name ?? '',
+    accessSource: row.access_source ?? '',
+    accessHost: row.access_host ?? '',
+    clientIp: row.client_ip ?? '',
     uploadedAt,
   };
 };
@@ -215,9 +238,12 @@ const toPhotoUpload = (row) => {
 export const photoUploadFor = async (styleCode) => {
   try {
     await ensurePhotoAuditReady();
-    const rows = await query(SQL_PHOTO_AUDIT_BY_STYLE, {
-      style_code: String(styleCode ?? '').trim(),
-    });
+    const rows = await query(
+      auditHasAccessColumns ? SQL_PHOTO_AUDIT_BY_STYLE : SQL_PHOTO_AUDIT_LEGACY_BY_STYLE,
+      {
+        style_code: String(styleCode ?? '').trim(),
+      },
+    );
     return toPhotoUpload(rows[0]);
   } catch (error) {
     console.error('[photo] Không đọc được thông tin upload', error);
@@ -226,15 +252,25 @@ export const photoUploadFor = async (styleCode) => {
 };
 
 /** Ghi thêm một dòng lịch sử cho lần upload ảnh mới. */
-export const recordPhotoUpload = async (styleCode, fileName, actor) => {
+export const recordPhotoUpload = async (styleCode, fileName, actor, access = {}) => {
   await ensurePhotoAuditReady();
-  await query(SQL_PHOTO_AUDIT_INSERT, {
+  const baseParams = {
     style_code: String(styleCode ?? '').trim(),
     file_name: fileName ?? null,
     uploaded_by: actor?.username ?? null,
     uploaded_by_emp_no: actor?.empNo ?? null,
     uploaded_by_name: actor?.empName ?? null,
-  });
+  };
+  if (auditHasAccessColumns) {
+    await query(SQL_PHOTO_AUDIT_INSERT, {
+      ...baseParams,
+      access_source: access?.source ?? null,
+      access_host: access?.host ?? null,
+      client_ip: access?.clientIp ?? null,
+    });
+  } else {
+    await query(SQL_PHOTO_AUDIT_LEGACY_INSERT, baseParams);
+  }
   return photoUploadFor(styleCode);
 };
 
@@ -245,6 +281,9 @@ const toHistoryEntry = (row) => ({
   uploadedBy: row.uploaded_by ?? '',
   uploadedByEmpNo: row.uploaded_by_emp_no ?? '',
   uploadedByName: row.uploaded_by_name ?? '',
+  accessSource: row.access_source ?? '',
+  accessHost: row.access_host ?? '',
+  clientIp: row.client_ip ?? '',
   uploadedAt:
     row.uploaded_at instanceof Date ? row.uploaded_at.toISOString() : String(row.uploaded_at ?? ''),
 });
@@ -267,7 +306,10 @@ export const searchPhotoHistory = async ({
     row_limit: limit,
     row_offset: offset,
   };
-  const rows = await query(SQL_PHOTO_AUDIT_SEARCH, params);
+  const rows = await query(
+    auditHasAccessColumns ? SQL_PHOTO_AUDIT_SEARCH : SQL_PHOTO_AUDIT_LEGACY_SEARCH,
+    params,
+  );
   const countRows = await query(SQL_PHOTO_AUDIT_SEARCH_COUNT, params);
   return {
     items: rows.map(toHistoryEntry),
