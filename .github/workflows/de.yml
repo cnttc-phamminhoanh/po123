@@ -100,7 +100,7 @@ jobs:
           # Cấu hình Nginx chỉ cài khi chưa có
           if [ ! -f /etc/nginx/conf.d/po123.conf ]; then
             sudo -n true 2>/dev/null || {
-              echo "Chưa có cấu hình Nginx
+              echo "Chưa có cấu hình Nginx và runner không có quyền sudo. Cần cấu hình Nginx trước." >&2
               exit 1
             }
           fi
