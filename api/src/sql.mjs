@@ -159,6 +159,7 @@ material_raw AS (
     END AS mat_type,
     m.goods_no AS mat_no,
     m.mat_flag,
+    b.base_name AS mat_base_name,
     m.goods_name AS mat_name,
     m.sheet_amt
   FROM sal_po_costing3 m WITH (NOLOCK)
@@ -173,12 +174,16 @@ material_detail AS (
       WHEN 'm3' THEN 'pack'
       WHEN 'b' THEN 'opa'
     END AS category,
-    COALESCE(NULLIF(mat_no, ''), NULLIF(LTRIM(RTRIM(mat_flag)), '')) AS code,
+    COALESCE(
+      NULLIF(mat_no, ''),
+      NULLIF(mat_base_name, ''),
+      NULLIF(LTRIM(RTRIM(mat_flag)), '')
+    ) AS code,
     ISNULL(mat_name, '') AS name,
     SUM(ISNULL(sheet_amt, 0)) / 1000.0 AS amount
   FROM material_raw
   WHERE mat_type IN ('m1', 'm2', 'm3', 'b')
-  GROUP BY sheet_no, mat_type, mat_no, mat_flag, mat_name
+  GROUP BY sheet_no, mat_type, mat_no, mat_base_name, mat_flag, mat_name
 ),
 material AS (
   SELECT

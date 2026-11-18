@@ -979,7 +979,7 @@
   align-self: stretch;
   box-sizing: border-box;
   width: 100%;
-  height: 150px;
+  height: 210px;
   margin: 8px 0 10px;
   padding: 11px 12px;
   background: #FBF9FF;
@@ -1033,7 +1033,7 @@
 
 .mat-detail-row {
   display: grid;
-  grid-template-columns: 80px minmax(0, 1fr) 56px;
+  grid-template-columns: 96px minmax(0, 1fr) 56px;
   gap: 10px;
   align-items: baseline;
   font-size: 10.5px;
@@ -1058,11 +1058,16 @@
 
 .mat-detail-code {
   overflow: hidden;
+  display: -webkit-box;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-weight: 600;
   color: #4F3AA6;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .mat-detail-name {

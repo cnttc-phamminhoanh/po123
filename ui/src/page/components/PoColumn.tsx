@@ -163,7 +163,9 @@ const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) 
               <div className="mat-detail-list">
                 {details.map((line, lineIndex) => (
                   <div className="mat-detail-row" key={`${line.category}-${line.code}-${lineIndex}`}>
-                    <span className="mat-detail-code">{line.code || '—'}</span>
+                    <span className="mat-detail-code" title={line.code || '—'}>
+                      {line.code || '—'}
+                    </span>
                     <span className="mat-detail-name" title={line.name || '—'}>
                       {line.name || '—'}
                     </span>
