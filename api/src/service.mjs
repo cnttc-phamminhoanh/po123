@@ -65,7 +65,7 @@ const parseMaterialDetails = (value) => {
       category: String(row?.category ?? ''),
       code: String(row?.code ?? '').trim(),
       name: String(row?.name ?? '').trim(),
-      amount: round2(row?.amount),
+      amount: round4(row?.amount),
     }))
     .filter(
       (row) =>

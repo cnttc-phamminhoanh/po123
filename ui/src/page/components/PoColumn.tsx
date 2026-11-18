@@ -92,6 +92,11 @@ const MAT_SUM_CELLS: {
   { tag: 'OPA', category: 'opa', labelKey: 'seriesOpa' },
 ];
 
+const detailMoney = (value: number): string => {
+  const abs = Math.abs(value);
+  return money(value, abs > 0 && abs < 0.01 ? 4 : 2);
+};
+
 const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) => {
   const t = useT();
   const [openCategory, setOpenCategory] = useState<BomCategory | null>('fabric');
@@ -162,7 +167,7 @@ const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) 
                     <span className="mat-detail-name" title={line.name || '—'}>
                       {line.name || '—'}
                     </span>
-                    <span className="mat-detail-amount">{money(line.amount)}</span>
+                    <span className="mat-detail-amount">{detailMoney(line.amount)}</span>
                   </div>
                 ))}
               </div>
