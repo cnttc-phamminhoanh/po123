@@ -10,21 +10,21 @@ export interface MiniChartItem {
 
 interface MiniChartProps {
   items: MiniChartItem[];
-  footRight: string;
   lead?: ReactNode;
 }
 
-const MiniChart = ({ items, footRight, lead }: MiniChartProps) => {
+const MiniChart = ({ items, lead }: MiniChartProps) => {
   const total: number = items.reduce(
     (sum: number, item: MiniChartItem) => sum + item.value,
     0,
   );
+  const segments = items.filter((item: MiniChartItem) => item.value > 0);
 
   return (
     <>
       {lead}
       <div className="mini-bar">
-        {items.map((item: MiniChartItem) => (
+        {segments.map((item: MiniChartItem) => (
           <i
             key={item.label}
             style={{
@@ -42,9 +42,6 @@ const MiniChart = ({ items, footRight, lead }: MiniChartProps) => {
             <span className="val">{money(item.value, item.digits ?? 2)}</span>
           </div>
         ))}
-      </div>
-      <div className="mini-foot">
-        <span>{footRight}</span>
       </div>
     </>
   );

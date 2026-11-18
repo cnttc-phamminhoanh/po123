@@ -94,7 +94,7 @@ Base: `/api/bom`
 | --- | --- | --- |
 | GET | `/styles` | Danh sách style kèm season, size group và số tổng hợp |
 | GET | `/latest-style` | Style mới nhất; 404 nếu chưa có PO |
-| GET | `/styles/:code?season=&sizeGroup=` | Chi tiết style + 4 cột PO |
+| GET | `/styles/:code?season=&sizeGroup=&soSeason=` | Chi tiết style + 4 cột PO; `season` là mùa báo giá, `soSeason` là mùa SO nếu cần chọn |
 | GET | `/styles/:code/photo` | Trả ảnh style từ `PHOTO_DIR` |
 | POST | `/styles/:code/photo` | Upload ảnh, cần đăng nhập; `multipart/form-data`, field `file` |
 | PATCH | `/styles/:code/pos/:poNo` | Chưa mở — trả `501`, không ghi vào ERP |
@@ -143,9 +143,12 @@ Lỗi trả theo dạng:
 - **PO1**: báo giá mới nhất của style trong season / size group đang xem.
   `sal_po_costing1` (header, FOB `def06`, factory `def05`, version `ver_no`) +
   `sal_po_costing3` (vật tư) + `sal_po_costing2` (nhân công) + `sal_po_costing4` (chi phí khác).
+- **Season**: PO1 dùng season báo giá (`sal_po_costing1`); PO2A/PO2B/PO3 dùng season thực tế trên SO (`bas_goods.goods_model`).
+  Nếu hai mùa lệch nhau, API tự lấy mùa SO (một mùa thì tự dùng; nhiều mùa thì trả `soSeasons` để UI chọn) và trả
+  `seasonMismatch` để UI cảnh báo. Season / size group không có dòng SO thì vẫn để 0, không cộng nhiều mùa.
 - **PO2A material**: theo logic SQL cũ: mã F của style, dòng SO hợp lệ, MRP / pur_plan / pur_order.
   Các bảng chính: `bas_goods`, `sal_order1/2`, `bas_base_code`, `mrp_mrp2`, `pur_plan2`, `pur_order1/2`, `size_grp_gi`, `bom_stru1/2`, `bas_cur_acc`.
-  Nếu season / size group không có dòng SO thì để 0, không tự đổi season.
+  Nếu `materialTotal` của PO2A/PO2B bằng 0 thì `laborCost` và `otherTotal` cũng bằng 0; PO3 giữ nhân công thực tế nhưng `otherTotal` bằng 0.
 - **PO2B material**: logic SQL cũ, giữ cách chọn SO / HADDAD / season / size group / MRP3 / MRP2 / forecast / BOM.
   Khác PO2A: tiền vật tư lấy từ phiếu nhập kho thực tế (`pur_notice1/2`, `pur_in1/2`, loại `PZGI`, `PIGI/PTGI/PTGIA`), quy đổi USD bằng `bas_cur_acc` theo `acc_period`, rồi phân bổ về SO + size group.
 - **PO3 material**: theo sản xuất thực tế: MO (`sfc_mo1/2`) + phiếu xuất (`scm_out1/2`) + giá nhập (`pur_in1/2`) + BOM (`v_bom_stru2_sc_gi`), phân bổ về size group của SO.

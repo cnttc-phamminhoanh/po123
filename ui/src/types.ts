@@ -170,7 +170,12 @@ export interface StyleDetail {
   name: string;
   buyer: string;
   season: string;
+  quoteSeason?: string;
   seasons?: string[];
+  soSeason?: string;
+  soSeasons?: string[];
+  seasonMismatch?: boolean;
+  soSeasonNeedsChoice?: boolean;
   latestSeason?: string;
   fabric: string;
   poDate: string;

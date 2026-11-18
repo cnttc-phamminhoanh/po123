@@ -87,6 +87,42 @@ GROUP BY pn.sheet_no, pn.season, LTRIM(RTRIM(pn.terms)), pn.check_date, c.cust_n
 ORDER BY pn.sheet_no ASC
 `;
 
+/**
+ * Season thực tế trên SO của style.
+ * Dùng để tách "season báo giá" (PO1) khỏi "season SO" (PO2A/PO2B/PO3).
+ */
+export const SQL_SO_SEASON_OPTIONS = `
+SELECT
+  LTRIM(RTRIM(ISNULL(g.goods_model, ''))) AS season,
+  MAX(s1.sheet_date) AS last_sheet_date,
+  COUNT(DISTINCT s.sheet_no) AS so_count
+FROM sal_order2 s WITH (NOLOCK)
+JOIN sal_order1 s1 WITH (NOLOCK) ON s1.sheet_no = s.sheet_no
+JOIN bas_goods g WITH (NOLOCK) ON g.goods_no = s.goods_no
+LEFT JOIN bas_cust c WITH (NOLOCK) ON c.cust_no = s1.cust_no1
+WHERE s1.sheet_type IN ('SOGI', 'SOCGI')
+  AND s1.sheet_sta = '1'
+  AND s.sheet_sta = '1'
+  AND (s.close_type IS NULL OR LEFT(s.close_type, 1) <> '1')
+  AND LEFT(s.goods_no, 1) = 'F'
+  AND ISNULL(s1.cust_no1, '') <> '10003'
+  AND ISNULL(s1.cust_ord_no, '') NOT IN ('GISTOCK', N'GI库存')
+  AND LEFT(s1.sheet_no, 3) <> 'SOD'
+  AND (
+    (
+      (ISNULL(s1.cust_no1, '') IN ('10015', '10110') OR ISNULL(c.cust_name1, '') LIKE '%HADDAD%')
+      AND LEFT(REPLACE(g.bar_no, ' ', ''), 8) = LEFT(REPLACE(@style, ' ', ''), 8)
+    )
+    OR (
+      NOT (ISNULL(s1.cust_no1, '') IN ('10015', '10110') OR ISNULL(c.cust_name1, '') LIKE '%HADDAD%')
+      AND REPLACE(g.bar_no, ' ', '') = REPLACE(@style, ' ', '')
+    )
+  )
+  AND NULLIF(LTRIM(RTRIM(ISNULL(g.goods_model, ''))), '') IS NOT NULL
+GROUP BY LTRIM(RTRIM(ISNULL(g.goods_model, '')))
+ORDER BY last_sheet_date DESC, season DESC
+`;
+
 /** Chi phí PO1: header + material + labor + expense của báo giá mới nhất. */
 export const SQL_PO1_COST = `
 ;WITH po_header AS (

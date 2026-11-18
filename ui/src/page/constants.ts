@@ -73,9 +73,9 @@ export const LABOR_SERIES: SeriesMeta<LaborOpCode>[] = [
 ];
 
 export const OTHER_SERIES: SeriesMeta<OtherCostCategory>[] = [
-  { key: 'overhead', labelKey: 'seriesOverhead', color: RAMP[0] },
-  { key: 'qc', labelKey: 'seriesQc', color: RAMP[1] },
-  { key: 'freight', labelKey: 'seriesFreight', color: RAMP[2] },
+  { key: 'overhead', labelKey: 'seriesOverhead', color: '#6E57DA' },
+  { key: 'qc', labelKey: 'seriesQc', color: '#2E88FF' },
+  { key: 'freight', labelKey: 'seriesFreight', color: '#E8A317' },
 ];
 
 export type CostGroup = 'materials' | 'labors' | 'others';

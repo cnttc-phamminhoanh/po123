@@ -12,10 +12,15 @@ const baseUrl = '/bom';
 const seasonQuery = (season?: string): string =>
   season ? `?season=${encodeURIComponent(season)}` : '';
 
-const detailQuery = (season?: string, sizeGroup?: string): string => {
+const detailQuery = (
+  season?: string,
+  sizeGroup?: string,
+  soSeason?: string,
+): string => {
   const params = new URLSearchParams();
   if (season) params.set('season', season);
   if (sizeGroup) params.set('sizeGroup', sizeGroup);
+  if (soSeason) params.set('soSeason', soSeason);
   const text = params.toString();
   return text ? `?${text}` : '';
 };
@@ -33,10 +38,11 @@ export const fetchStyle = async (
   code: string,
   season?: string,
   sizeGroup?: string,
+  soSeason?: string,
 ): Promise<StyleDetail> => {
   try {
     return await apiRequest<StyleDetail>(
-      `${baseUrl}/styles/${encodeURIComponent(code)}${detailQuery(season, sizeGroup)}`,
+      `${baseUrl}/styles/${encodeURIComponent(code)}${detailQuery(season, sizeGroup, soSeason)}`,
     );
   } catch (error) {
     logger.error('Failed to load style detail', error);

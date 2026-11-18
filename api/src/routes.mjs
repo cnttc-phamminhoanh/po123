@@ -138,6 +138,7 @@ bomRouter.get(
       req.params.code,
       req.query.season ? String(req.query.season) : undefined,
       req.query.sizeGroup ? String(req.query.sizeGroup) : undefined,
+      req.query.soSeason ? String(req.query.soSeason) : undefined,
     );
     if (detail) {
       res.json({ ...detail, photoUrl: await photoUrlFor(detail.code) });

@@ -4,6 +4,7 @@ import { createTtlCache } from './cache.mjs';
 import {
   SQL_LATEST_STYLE,
   SQL_PO1_COST,
+  SQL_SO_SEASON_OPTIONS,
   SQL_STYLE_CONTEXT,
   SQL_STYLE_EXISTS,
   SQL_STYLE_LIST,
@@ -44,8 +45,8 @@ const latestStyleCache = createTtlCache({
   maxEntries: 1,
 });
 
-const styleDetailKey = (code, season, sizeGroup) =>
-  `${String(code ?? '').trim()}|${String(season ?? '').trim()}|${String(sizeGroup ?? '').trim()}`;
+const styleDetailKey = (code, season, sizeGroup, soSeason) =>
+  `${String(code ?? '').trim()}|${String(season ?? '').trim()}|${String(sizeGroup ?? '').trim()}|${String(soSeason ?? '').trim()}`;
 
 /** SQL trả JSON để giữ được danh sách mã vật tư trong cùng một dòng kết quả. */
 const parseMaterialDetails = (value) => {
@@ -353,7 +354,7 @@ export const getStyleList = async () => {
   return { styles };
 };
 
-const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
+const loadStyleDetail = async (code, seasonParam, sizeGroupParam, soSeasonParam) => {
   const contextRows = await query(SQL_STYLE_CONTEXT, { style: code });
   if (contextRows.length === 0) return null;
 
@@ -366,19 +367,51 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     seasonRows.map((row) => toText(row.terms)).filter((term) => term && term !== SIZE_GROUP_COMMON),
   );
 
-  const costRows = await query(SQL_PO1_COST, {
-    style: code,
-    season,
-    terms: sizeGroup,
-  });
+  // PO1 luôn dùng season báo giá. PO2A/PO2B/PO3 dùng season thực tế trên SO.
+  const [costRows, soSeasonRows] = await Promise.all([
+    query(SQL_PO1_COST, {
+      style: code,
+      season,
+      terms: sizeGroup,
+    }),
+    query(SQL_SO_SEASON_OPTIONS, { style: code }).catch((error) => {
+      console.warn('[api] SO season options failed:', error.message);
+      return [];
+    }),
+  ]);
   if (costRows.length === 0) return null;
   const cost = costRows[0];
+
+  const soSeasons = [
+    ...new Set(soSeasonRows.map((row) => toText(row.season)).filter(Boolean)),
+  ];
+  const requestedSoSeason = toText(soSeasonParam);
+  let soSeason = season;
+  let soSeasonNeedsChoice = false;
+
+  if (requestedSoSeason && soSeasons.includes(requestedSoSeason)) {
+    // Người dùng đã chọn season SO cụ thể.
+    soSeason = requestedSoSeason;
+  } else if (soSeasons.includes(season)) {
+    // Ưu tiên season SO trùng với season báo giá.
+    soSeason = season;
+  } else if (soSeasons.length === 1) {
+    // Chỉ có một season SO: tự dùng và cảnh báo lệch season.
+    soSeason = soSeasons[0];
+  } else if (soSeasons.length > 1) {
+    // Có nhiều season SO và không có season trùng: tạm lấy mới nhất,
+    // đồng thời báo UI mở ô chọn season SO.
+    soSeason = soSeasons[0];
+    soSeasonNeedsChoice = true;
+  }
+
+  const seasonMismatch = Boolean(soSeason && season && soSeason !== season);
 
   const [qtyRows, materialRows, po2bRows, po3Rows, po3LaborRows, po3PriceRows] = await Promise.all([
     query(SQL_STYLE_QTY, { style: code }),
     query(SQL_PO2A_MATERIAL, {
       p_style: code,
-      p_season: season,
+      p_season: soSeason,
       p_size_grp: sizeGroup,
     }).catch((error) => {
       console.warn('[api] PO2A material failed:', error.message);
@@ -386,7 +419,7 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     }),
     query(SQL_PO2B_MATERIAL, {
       p_style: code,
-      p_season: season,
+      p_season: soSeason,
       p_size_grp: sizeGroup,
     }).catch((error) => {
       console.warn('[api] PO2B material failed:', error.message);
@@ -394,7 +427,7 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     }),
     query(SQL_PO3_MATERIAL, {
       p_style: code,
-      p_season: season,
+      p_season: soSeason,
       p_size_grp: sizeGroup,
     }).catch((error) => {
       console.warn('[api] PO3 material failed:', error.message);
@@ -402,7 +435,7 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     }),
     queryOld(SQL_PO3_LABOR, {
       p_style: code,
-      p_season: season,
+      p_season: soSeason,
       p_size_grp: sizeGroup,
     }).catch((error) => {
       console.warn('[api] PO3 labor (old DB) failed:', error.message);
@@ -410,7 +443,7 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     }),
     query(SQL_PO3_PRICE, {
       p_style: code,
-      p_season: season,
+      p_season: soSeason,
       p_size_grp: sizeGroup,
     }).catch((error) => {
       console.warn('[api] PO3 FOB price failed:', error.message);
@@ -418,8 +451,8 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     }),
   ]);
 
-  // Giữ đúng tham số season/size group đang xem. Nếu SQL cũ không có dòng
-  // tương ứng thì vật liệu PO2A/PO2B/PO3 và nhân công PO3 để 0, không tự đổi.
+  // PO1 dùng season báo giá; PO2A/PO2B/PO3 dùng season SO đã chọn/tự resolve.
+  // Nếu SQL cũ không có dòng tương ứng thì vật liệu PO2A/PO2B/PO3 và nhân công PO3 để 0.
   const po2aMaterial = materialRows[0] ?? {};
   const po2bMaterial = po2bRows[0] ?? {};
   const po3Material = po3Rows[0] ?? {};
@@ -431,15 +464,21 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
   const shipped = num(qtyRow.shipped);
 
   const po1 = buildPo({ ...cost, fob: num(cost.fob) }, units, shipped, sizeGroup, code);
+  const hasMaterial = (po) => num(po.materialTotal) > 0;
   const sharedOther = (po) => ({
     ...po,
-    otherCosts: po1.otherCosts.map((line) => ({ ...line })),
-    otherTotal: po1.otherTotal,
+    // Không có nguyên phụ liệu thì không mang chi phí khác của PO1 sang.
+    otherCosts: hasMaterial(po)
+      ? po1.otherCosts.map((line) => ({ ...line }))
+      : po1.otherCosts.map((line) => ({ ...line, amount: 0 })),
+    otherTotal: hasMaterial(po) ? po1.otherTotal : 0,
   });
-  /** PO2A / PO2B dùng đúng chi phí nhân công của PO1. */
+  /** PO2A / PO2B dùng đúng chi phí nhân công của PO1 khi có nguyên phụ liệu. */
   const sharedLabor = (po) => {
-    const laborCost = po1.laborCost;
-    const laborOps = po1.laborOps.map((line) => ({ ...line }));
+    const laborCost = hasMaterial(po) ? po1.laborCost : 0;
+    const laborOps = hasMaterial(po)
+      ? po1.laborOps.map((line) => ({ ...line }))
+      : po1.laborOps.map((line) => ({ ...line, cost: 0 }));
     return {
       ...po,
       laborCost,
@@ -556,7 +595,12 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     po1,
     sharedPrice(sharedLabor(sharedOther(withMaterial(buildEmptyPo(code, '2A'), po2aMaterial)))),
     sharedPrice(sharedLabor(sharedOther(withMaterial(buildEmptyPo(code, '2B'), po2bMaterial)))),
-    withPo3Cost(sharedOther(buildEmptyPo(code, '3')), po3Material, po3Labor, po3Price),
+    withPo3Cost(
+      sharedOther(withMaterial(buildEmptyPo(code, '3'), po3Material)),
+      po3Material,
+      po3Labor,
+      po3Price,
+    ),
   ];
 
   const orderValue = round2(pos.reduce((sum, po) => sum + po.orderValue, 0));
@@ -573,7 +617,12 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
     name: cleanName(code, cost.goods_name),
     buyer: toText(contextRows[0]?.buyer),
     season,
+    quoteSeason: season,
     seasons,
+    soSeason,
+    soSeasons,
+    seasonMismatch,
+    soSeasonNeedsChoice,
     latestSeason: season,
     fabric: '',
     poDate: toDate(cost.sheet_date),
@@ -627,9 +676,10 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam) => {
   };
 };
 
-export const getStyleDetail = (code, seasonParam, sizeGroupParam) =>
-  styleDetailCache.load(styleDetailKey(code, seasonParam, sizeGroupParam), () =>
-    loadStyleDetail(code, seasonParam, sizeGroupParam),
+export const getStyleDetail = (code, seasonParam, sizeGroupParam, soSeasonParam) =>
+  styleDetailCache.load(
+    styleDetailKey(code, seasonParam, sizeGroupParam, soSeasonParam),
+    () => loadStyleDetail(code, seasonParam, sizeGroupParam, soSeasonParam),
   );
 
 export const clearStyleDetailCache = () => styleDetailCache.clear();

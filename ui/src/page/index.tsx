@@ -44,6 +44,7 @@ const PoSummaryPage = () => {
   const [inputCode, setInputCode] = useState<string>('');
   const [draftCode, setDraftCode] = useState<string>('');
   const [draftSeason, setDraftSeason] = useState<string>('');
+  const [draftSoSeason, setDraftSoSeason] = useState<string>('');
   const [sizeGroup, setSizeGroup] = useState<string>('');
   const [openGroups, setOpenGroups] = useState<Record<CostGroup, boolean>>({
     materials: false,
@@ -112,11 +113,14 @@ const PoSummaryPage = () => {
     };
   }, [userMenuOpen]);
 
-  const detailQuery = useStyleDetail(draftCode, draftSeason, sizeGroup);
+  const detailQuery = useStyleDetail(draftCode, draftSeason, sizeGroup, draftSoSeason);
   const detail: StyleDetail | undefined = detailQuery.data;
 
   const activeSeason: string = draftSeason || detail?.season || '';
   const seasonOptions: string[] = detail?.seasons ?? [];
+  const soSeasonOptions: string[] = detail?.soSeasons ?? [];
+  const activeSoSeason: string = draftSoSeason || detail?.soSeason || '';
+  const showSoSeason = soSeasonOptions.length > 1;
   const sizeGroupOptions: string[] = detail?.sizeGroups ?? [];
   const appliedSizeGroup: string =
     sizeGroup && detail?.sizeGroups.includes(sizeGroup)
@@ -125,6 +129,12 @@ const PoSummaryPage = () => {
 
   const handleSeasonChange = (season: string) => {
     setDraftSeason(season);
+    setDraftSoSeason('');
+    setSizeGroup('');
+  };
+
+  const handleSoSeasonChange = (season: string) => {
+    setDraftSoSeason(season);
     setSizeGroup('');
   };
 
@@ -141,6 +151,7 @@ const PoSummaryPage = () => {
       return;
     }
     setDraftSeason('');
+    setDraftSoSeason('');
     setSizeGroup('');
     setDraftCode(code);
   };
@@ -258,6 +269,7 @@ const PoSummaryPage = () => {
     }
     return (
       <SummaryView
+        key={`${detail.code}-${detail.season}-${appliedSizeGroup}`}
         detail={detail}
         sizeGroup={appliedSizeGroup}
         openGroups={openGroups}
@@ -429,7 +441,7 @@ const PoSummaryPage = () => {
             <div className="filter">
               <span className="filter-label">
                 {seasonOptions.length > 1 ? <i className="req">*</i> : null}{' '}
-                {t('season')}
+                {t('quoteSeason')}
               </span>
               <Select
                 value={activeSeason}
@@ -438,7 +450,7 @@ const PoSummaryPage = () => {
               >
                 <SelectTrigger
                   className="style-input"
-                  aria-label={t('season')}
+                  aria-label={t('quoteSeason')}
                   title={
                     seasonOptions.length > 1 ? undefined : t('oneSeasonOnly')
                   }
@@ -455,6 +467,26 @@ const PoSummaryPage = () => {
               </Select>
             </div>
           ) : null}
+          {showSoSeason ? (
+            <div className="filter">
+              <span className="filter-label">{t('soSeason')}</span>
+              <Select value={activeSoSeason} onValueChange={handleSoSeasonChange}>
+                <SelectTrigger
+                  className="style-input"
+                  aria-label={t('soSeason')}
+                >
+                  <SelectValue placeholder={t('selectSoSeason')} />
+                </SelectTrigger>
+                <SelectContent className="rounded-[8px]">
+                  {soSeasonOptions.map((option: string) => (
+                    <SelectItem key={option} value={option}>
+                      {option}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          ) : null}
           {sizeGroupOptions.length > 0 ? (
             <SizeGroupBar
               sizeGroups={sizeGroupOptions}
@@ -463,6 +495,16 @@ const PoSummaryPage = () => {
             />
           ) : null}
         </div>
+        {detail?.seasonMismatch ? (
+          <div className="season-note-row">
+            <div className="season-note" role="status">
+              {t('seasonMismatchNote', {
+                quoteSeason: detail.season,
+                soSeason: detail.soSeason ?? '',
+              })}
+            </div>
+          </div>
+        ) : null}
       </header>
 
       <main id="view" data-ai-section-type="card-list">

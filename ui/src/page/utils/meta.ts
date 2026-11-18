@@ -41,7 +41,10 @@ export const buildMetaFields = (
     id: [
       { label: t('customer'), value: detail.buyer },
       { label: t('styleNo'), value: detail.code },
-      { label: t('season'), value: detail.season },
+      { label: t('quoteSeason'), value: detail.season },
+      ...(detail.soSeason && detail.seasonMismatch
+        ? [{ label: t('soSeason'), value: detail.soSeason }]
+        : []),
     ],
     order: [
       { label: t('po1No'), value: first?.poNo || '—' },

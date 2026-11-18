@@ -10,6 +10,8 @@
   --blue: #2E88FF;
   --cell: #E8E8E8;
   --cell-2: #EDEDED;
+  --shadow-card: 0 2px 6px rgba(7, 59, 76, 0.055);
+  --shadow-card-strong: 0 3px 9px rgba(7, 59, 76, 0.09);
 }
 
 .po-app {
@@ -63,6 +65,30 @@
 .filter { display: flex; flex-direction: column; gap: 5px; }
 
 .filter-label { font-size: 12px; color: var(--ink-2); }
+
+.season-note-row {
+  display: flex;
+  padding-left: 0;
+  margin-top: 8px;
+}
+
+.season-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: fit-content;
+  max-width: none;
+  margin-top: 0;
+  padding: 4px 10px;
+  border: 1px solid #F5D9A8;
+  border-left: 3px solid #E8A317;
+  background: #FFFBF0;
+  color: #7A5200;
+  border-radius: 7px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
 
 .req { color: #F5222D; font-style: normal; margin-right: 2px; font-size: 12px; }
 
@@ -514,6 +540,31 @@
 
 .po { display: flex; flex-direction: column; min-width: 0; }
 
+@keyframes summary-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.po-grid > .po {
+  animation: summary-card-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.po-grid > .po:nth-child(2) { animation-delay: 110ms; }
+.po-grid > .po:nth-child(3) { animation-delay: 220ms; }
+.po-grid > .po:nth-child(4) { animation-delay: 330ms; }
+
+.po-title,
+.gp-tile,
+.band {
+  box-shadow: var(--shadow-card);
+}
+
 .band { position: relative; }
 
 .rail-btn {
@@ -669,7 +720,7 @@
   border-radius: 12px;
 }
 
-.price-cell--alt { background: var(--cell-2); }
+.price-cell--alt { background: var(--cell); }
 
 .price-cell span {
   font-size: 12px;
@@ -682,6 +733,84 @@
   font-size: 15px;
   font-weight: 600;
   color: #1A1A1A;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-mix {
+  margin-top: 6px;
+  padding: 8px 13px 7px;
+  background: #F7F7F8;
+  border: 1px solid #EFEFF1;
+  border-radius: 10px;
+}
+
+.cost-mix-title {
+  margin-bottom: 6px;
+  font-size: 8.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.06em;
+  color: #8A949A;
+  text-transform: uppercase;
+}
+
+.cost-mix-bar {
+  display: flex;
+  height: 10px;
+  padding: 1px;
+  overflow: hidden;
+  border: 1px solid #E5E5EA;
+  border-radius: 999px;
+  background: #FFFFFF;
+}
+
+.cost-mix-bar i {
+  display: block;
+  height: 100%;
+}
+
+.cost-mix-bar i:first-child { border-radius: 999px 0 0 999px; }
+.cost-mix-bar i:last-child { border-radius: 0 999px 999px 0; }
+.cost-mix-bar i:only-child { border-radius: 999px; }
+.cost-mix-bar i:not(:last-child) { box-shadow: inset -2px 0 0 #FFFFFF; }
+
+.cost-mix-items {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.cost-mix-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.cost-mix-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  font-size: 8.5px;
+  color: #6F7D84;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cost-mix-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+}
+
+.cost-mix-pct {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: #1F1F1F;
   font-variant-numeric: tabular-nums;
 }
 
@@ -1085,6 +1214,7 @@
 @media (min-width: 1500px) {
   .po-app .head-top,
   .po-app .filterbar,
+  .po-app .season-note-row,
   .po-app .summary-wrap {
     width: 100%;
     max-width: 1400px;
@@ -1107,6 +1237,8 @@
   main { padding: 10px 14px 22px; }
   .po-grid { grid-template-columns: minmax(0, 1fr); }
   .filterbar { flex-wrap: wrap; }
+  .season-note-row { padding-left: 0; }
+  .season-note { white-space: normal; max-width: 100%; }
   .style-input { width: 100%; }
   .filter { flex: 1 1 200px; }
   .chart { height: 300px; }
@@ -1114,6 +1246,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .po-app * { transition: none !important; }
+  .meta-grid > .meta-card,
+  .po-grid > .po { animation: none; }
 }
 
 /* ---------- style info strip ---------- */
@@ -1139,13 +1273,20 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
+  box-shadow: var(--shadow-card);
+  animation: summary-card-in 800ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
 }
+
+.meta-grid > .meta-card:nth-child(2) { animation-delay: 100ms; }
+.meta-grid > .meta-card:nth-child(3) { animation-delay: 200ms; }
+.meta-grid > .meta-card:nth-child(4) { animation-delay: 300ms; }
 
 .meta-card--id {
   background: #073B4C;
   border-color: #073B4C;
   justify-content: center;
   padding: 12px 12px 10px;
+  box-shadow: var(--shadow-card-strong);
 }
 
 .kv-list { display: flex; flex-direction: column; gap: 8px; }
@@ -2282,11 +2423,19 @@
 
 .po-app.is-exporting .head-actions,
 .po-app.is-exporting .filterbar,
+.po-app.is-exporting .season-note-row,
 .po-app.is-exporting .size-bar,
 .po-app.is-exporting .rail-btn,
 .po-app.is-exporting .rail-line,
 .po-app.is-exporting .cat-loader,
 .po-app.is-exporting .summary-loading-overlay { display: none !important; }
+
+.po-app.is-exporting .meta-grid > .meta-card,
+.po-app.is-exporting .po-grid > .po {
+  animation: none !important;
+  opacity: 1;
+  transform: none;
+}
 
 .po-app.is-exporting .head {
   padding: 0 0 20px;

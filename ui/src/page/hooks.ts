@@ -14,8 +14,12 @@ import {
 
 export const styleListKey = ['bom', 'styles'] as const;
 export const latestStyleKey = ['bom', 'latest-style'] as const;
-export const styleDetailKey = (code: string, season: string, sizeGroup: string) =>
-  ['bom', 'style', code, season, sizeGroup] as const;
+export const styleDetailKey = (
+  code: string,
+  season: string,
+  sizeGroup: string,
+  soSeason: string,
+) => ['bom', 'style', code, season, sizeGroup, soSeason] as const;
 
 /** Dùng lại kết quả cho cùng mã hàng/mùa/size trong 60 giây. */
 const STYLE_DETAIL_STALE_MS = 60_000;
@@ -37,10 +41,16 @@ export const useLatestStyle = () =>
     staleTime: Infinity,
   });
 
-export const useStyleDetail = (code: string, season: string, sizeGroup: string) =>
+export const useStyleDetail = (
+  code: string,
+  season: string,
+  sizeGroup: string,
+  soSeason: string,
+) =>
   useQuery<StyleDetail>({
-    queryKey: styleDetailKey(code, season, sizeGroup),
-    queryFn: () => fetchStyle(code, season || undefined, sizeGroup || undefined),
+    queryKey: styleDetailKey(code, season, sizeGroup, soSeason),
+    queryFn: () =>
+      fetchStyle(code, season || undefined, sizeGroup || undefined, soSeason || undefined),
     enabled: Boolean(code),
     staleTime: STYLE_DETAIL_STALE_MS,
     gcTime: STYLE_DETAIL_GC_MS,

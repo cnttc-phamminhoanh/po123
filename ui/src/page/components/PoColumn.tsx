@@ -173,13 +173,6 @@ const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) 
         </div>
       ) : null}
 
-      <div className="mini-foot mat-sum-foot">
-        <span>
-          {t('ofCost', {
-            pct: pct1(po.unitCost > 0 ? (po.materialTotal / po.unitCost) * 100 : 0),
-          })}
-        </span>
-      </div>
     </>
   );
 };
@@ -192,6 +185,12 @@ const PRICE_BASIS_TITLES = [
 ];
 
 const TOTAL_COST_TITLES = ['PO1', 'PO2A', 'PO2B', 'PO3'];
+
+const COST_MIX_COLORS = {
+  materials: '#6E57DA',
+  labors: '#2E88FF',
+  others: '#9AA3AD',
+};
 
 const PoColumn = ({
   po,
@@ -262,6 +261,14 @@ const PoColumn = ({
     value: otherAmount(po, series.key),
     color: series.color,
   }));
+
+  const costShare = (value: number): number =>
+    po.unitCost > 0 ? (value / po.unitCost) * 100 : 0;
+  const materialShare = costShare(po.materialTotal);
+  const laborShare = costShare(po.laborCost);
+  const otherShare = costShare(po.otherTotal);
+  const barWidth = (share: number): string =>
+    `${Math.max(0, Math.min(100, share))}%`;
 
   const vars = {
     '--c': palette.base,
@@ -349,12 +356,7 @@ const PoColumn = ({
           lead={index === 0}
           onToggle={() => onToggleGroup('labors')}
         >
-          <MiniChart
-            items={laborItems}
-            footRight={t('ofCost', {
-              pct: pct1(po.unitCost > 0 ? (po.laborCost / po.unitCost) * 100 : 0),
-            })}
-          />
+          <MiniChart items={laborItems} />
         </GroupBlock>
 
         <GroupBlock
@@ -366,13 +368,61 @@ const PoColumn = ({
           onToggle={() => onToggleGroup('others')}
           railRef={lastRailRef}
         >
-          <MiniChart
-            items={otherItems}
-            footRight={t('ofCost', {
-              pct: pct1(po.unitCost > 0 ? (po.otherTotal / po.unitCost) * 100 : 0),
-            })}
-          />
+          <MiniChart items={otherItems} />
         </GroupBlock>
+      </div>
+
+      <div className="cost-mix">
+        <div className="cost-mix-title">{t('costMixTitle')}</div>
+        <div className="cost-mix-bar" aria-hidden="true">
+          {materialShare > 0 ? (
+            <i
+              style={{
+                width: barWidth(materialShare),
+                background: COST_MIX_COLORS.materials,
+              }}
+            />
+          ) : null}
+          {laborShare > 0 ? (
+            <i
+              style={{
+                width: barWidth(laborShare),
+                background: COST_MIX_COLORS.labors,
+              }}
+            />
+          ) : null}
+          {otherShare > 0 ? (
+            <i
+              style={{
+                width: barWidth(otherShare),
+                background: COST_MIX_COLORS.others,
+              }}
+            />
+          ) : null}
+        </div>
+        <div className="cost-mix-items">
+          <div className="cost-mix-item">
+            <span className="cost-mix-name">
+              <i className="cost-mix-dot" style={{ background: COST_MIX_COLORS.materials }} />
+              {t('costMixMaterials')}
+            </span>
+            <strong className="cost-mix-pct">{pct1(materialShare)}</strong>
+          </div>
+          <div className="cost-mix-item">
+            <span className="cost-mix-name">
+              <i className="cost-mix-dot" style={{ background: COST_MIX_COLORS.labors }} />
+              {t('costMixLabors')}
+            </span>
+            <strong className="cost-mix-pct">{pct1(laborShare)}</strong>
+          </div>
+          <div className="cost-mix-item">
+            <span className="cost-mix-name">
+              <i className="cost-mix-dot" style={{ background: COST_MIX_COLORS.others }} />
+              {t('costMixOthers')}
+            </span>
+            <strong className="cost-mix-pct">{pct1(otherShare)}</strong>
+          </div>
+        </div>
       </div>
     </article>
   );
