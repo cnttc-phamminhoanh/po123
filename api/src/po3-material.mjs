@@ -1,9 +1,11 @@
 /**
- * Vật liệu PO3 theo logic cũ.
- * Nguồn tiền: sản xuất thực tế (MO + phiếu xuất scm_out) và giá nhập kho pur_in.
+ * Vật liệu PO3 theo logic mới.
+ * - MO gồm MOGI/MOGIB và MOGIC (MOGIC chia theo tỷ lệ MRP).
+ * - BOM nhiều cấp F -> S -> J -> nguyên liệu (tối đa 6 cấp, ưu tiên phiếu BOM mới nhất).
+ * - Nhóm vật liệu: M1/M2/M3, B (mã bắt đầu bằng B), còn lại là XX và không tính vào m_ttl.
  *
  * Tham số: p_style, p_season, p_size_grp.
- * Kết quả: qty, m1, m2, m3, opa, m_ttl (USD/pcs).
+ * Kết quả: qty, m1, m2, m3, opa, m_ttl (USD/pcs) và material_details cho UI.
  */
 export const SQL_PO3_MATERIAL = `
 SET NOCOUNT ON;
@@ -22,12 +24,15 @@ DECLARE
   @s varchar(50),
   @g varchar(100),
   @cust_name nvarchar(255),
-  @has_size bit;
+  @has_size bit,
+  @lvl int = 0;
 
 DROP TABLE IF EXISTS
-  #so, #sg, #sg_sz, #grp_n, #so_sz, #line_n, #line_grp,
+  #so, #so_k, #sg, #sg_sz, #grp_n, #so_sz, #line_n, #line_grp,
   #so_sg0, #so_sg, #mo, #mo_key, #mo_tot, #mo_sz,
-  #iss, #isz, #price, #bom, #alloc, #r_detail, #r;
+  #mrp_c, #mlines, #jw,
+  #iss, #isz, #price, #bom, #alloc, #r_detail, #r,
+  #bq_todo, #bq_done, #bq_sheet, #bl, #grp, #blg;
 
 CREATE TABLE #so (
   so_no varchar(20), so_id int, f_goods varchar(30), season varchar(50),
@@ -97,6 +102,9 @@ SET @s = ISNULL(@s, '');
 DELETE FROM #so WHERE ISNULL(season, '') <> @s;
 
 SELECT TOP 1 @cust_name = cust_name FROM #so;
+
+SELECT DISTINCT so_no, so_id, f_goods INTO #so_k FROM #so;
+CREATE UNIQUE CLUSTERED INDEX IX_so_k ON #so_k(so_no, so_id, f_goods);
 
 -- Map size group
 SELECT * INTO #sg FROM size_grp_gi WHERE cust_name = @cust_name;
@@ -290,6 +298,118 @@ WHERE m2.sheet_sta = '1'
   )
 GROUP BY m2.sheet_no, m2.ord_no, m2.ord_id;
 
+-- (2) MOGIC: MO gia công J. Không ghi SO, chia cho SO theo tỷ lệ MRP (mrp_ratio).
+--     Các phiếu MRP có liên quan tới SO của style.
+SELECT sheet_no INTO #mrp_c
+FROM (
+  SELECT r3.sheet_no
+  FROM mrp_mrp3 r3 WITH (NOLOCK)
+  JOIN #so_k k
+    ON k.so_no = r3.ord_no
+    AND k.so_id = r3.ord_id
+  UNION
+  SELECT r.sheet_no
+  FROM mrp_mrp2 r WITH (NOLOCK)
+  JOIN #so_k k
+    ON k.so_no = r.ord_no
+    AND k.so_id = r.ord_id
+) x;
+
+CREATE UNIQUE CLUSTERED INDEX IX_mrp_c ON #mrp_c(sheet_no);
+
+-- Các dòng MOGIC đi từ các phiếu MRP đó.
+SELECT
+  m1.sheet_no AS mo_no,
+  m2.sheet_id AS mo_id,
+  m2.sheet_qty AS mo_qty,
+  m2.mrp_no,
+  m2.mrp_id
+INTO #mlines
+FROM sfc_mo2 m2 WITH (NOLOCK)
+JOIN sfc_mo1 m1 WITH (NOLOCK) ON m1.sheet_no = m2.sheet_no
+JOIN #mrp_c c ON c.sheet_no = m2.mrp_no
+WHERE m1.sheet_type = 'MOGIC'
+  AND m1.sheet_sta = '1'
+  AND m2.sheet_sta = '1';
+
+-- Tỷ trọng theo SO: giống cách tính của nhánh MRP không ghi SO.
+SELECT
+  ml.mo_no, ml.mo_id, ml.mo_qty,
+  r3.ord_no AS so_no, r3.ord_id AS so_id,
+  SUM(r3.sheet_qty) AS q3,
+  CASE WHEN s2.goods_no = r.goods_no0 THEN 1 ELSE 0 END AS ok_f
+INTO #jw
+FROM #mlines ml
+JOIN mrp_mrp2 r WITH (NOLOCK)
+  ON r.sheet_no = ml.mrp_no
+  AND r.sheet_id = ml.mrp_id
+JOIN mrp_mrp3 r3 WITH (NOLOCK)
+  ON r3.sheet_no = r.sheet_no
+  AND r3.child_no = r.goods_no
+LEFT JOIN sal_order2 s2 WITH (NOLOCK)
+  ON s2.sheet_no = r3.ord_no
+  AND s2.sheet_id = r3.ord_id
+WHERE r3.sheet_qty > 0
+  AND ISNULL(r3.ord_no, '') <> ''
+  AND (r.ord_no IS NULL OR r.ord_no = '' OR r.ord_id IS NULL OR r.ord_id = 0)
+GROUP BY
+  ml.mo_no, ml.mo_id, ml.mo_qty,
+  r3.ord_no, r3.ord_id,
+  CASE WHEN s2.goods_no = r.goods_no0 THEN 1 ELSE 0 END;
+
+;WITH e AS (
+  SELECT
+    mo_no, mo_id,
+    SUM(CASE WHEN ok_f = 1 THEN q3 END) AS q_ok,
+    SUM(q3) AS q_all
+  FROM #jw
+  GROUP BY mo_no, mo_id
+)
+INSERT INTO #mo (mo_no, so_no, so_id, mo_qty)
+SELECT
+  w.mo_no, w.so_no, w.so_id,
+  SUM(
+    w.mo_qty *
+    CASE
+      WHEN e.q_ok > 0 THEN CASE WHEN w.ok_f = 1 THEN w.q3 / e.q_ok ELSE 0 END
+      ELSE w.q3 / NULLIF(e.q_all, 0)
+    END
+  )
+FROM #jw w
+JOIN e ON e.mo_no = w.mo_no AND e.mo_id = w.mo_id
+GROUP BY w.mo_no, w.so_no, w.so_id
+HAVING SUM(
+  w.mo_qty *
+  CASE
+    WHEN e.q_ok > 0 THEN CASE WHEN w.ok_f = 1 THEN w.q3 / e.q_ok ELSE 0 END
+    ELSE w.q3 / NULLIF(e.q_all, 0)
+  END
+) > 0;
+
+-- Dòng MRP ghi thẳng SO: tỷ lệ = 1.
+INSERT INTO #mo (mo_no, so_no, so_id, mo_qty)
+SELECT
+  ml.mo_no, r.ord_no, r.ord_id, SUM(ml.mo_qty)
+FROM #mlines ml
+JOIN mrp_mrp2 r WITH (NOLOCK)
+  ON r.sheet_no = ml.mrp_no
+  AND r.sheet_id = ml.mrp_id
+WHERE r.ord_no IS NOT NULL AND r.ord_no <> ''
+  AND r.ord_id IS NOT NULL AND r.ord_id <> 0
+GROUP BY ml.mo_no, r.ord_no, r.ord_id;
+
+-- Bỏ MOGIC không có SO nào của style.
+DELETE m FROM #mo m
+WHERE m.mo_no IN (SELECT DISTINCT mo_no FROM #mlines)
+  AND NOT EXISTS (
+    SELECT 1
+    FROM #mo x
+    JOIN #so_k k
+      ON k.so_no = x.so_no
+      AND k.so_id = x.so_id
+    WHERE x.mo_no = m.mo_no
+  );
+
 -- Materialize danh sách MO duy nhất
 SELECT DISTINCT mo_no INTO #mo_key FROM #mo;
 CREATE UNIQUE CLUSTERED INDEX IX_mo_key ON #mo_key(mo_no);
@@ -425,25 +545,127 @@ WHERE p1.sheet_sta = '1'
   AND p2.goods_no IN (SELECT DISTINCT goods_no FROM #iss)
 GROUP BY p2.goods_no, ISNULL(p2.made_lot, '');
 
+------------------------------------------------------------
+-- BOM nhiều cấp: F -> S -> J -> nguyên liệu (tối đa 6 cấp)
+-- Định mức nhân dồn theo từng size_grp, chỉ giữ nguyên liệu lá.
+------------------------------------------------------------
+CREATE TABLE #bq_todo (parent_no varchar(30) PRIMARY KEY);
+CREATE TABLE #bq_done (parent_no varchar(30) PRIMARY KEY);
+CREATE TABLE #bq_sheet (parent_no varchar(30), sheet_no varchar(20));
+
+INSERT INTO #bq_todo
+SELECT DISTINCT f_goods FROM #so;
+
+WHILE @lvl < 6 AND EXISTS (SELECT 1 FROM #bq_todo)
+BEGIN
+  SET @lvl += 1;
+
+  INSERT INTO #bq_done
+  SELECT parent_no FROM #bq_todo;
+
+  -- Mỗi mã cha lấy phiếu BOM hiệu lực mới nhất (không trộn nhiều phiên bản).
+  INSERT INTO #bq_sheet (parent_no, sheet_no)
+  SELECT parent_no, sheet_no
+  FROM (
+    SELECT
+      b.parent_no, b.sheet_no,
+      ROW_NUMBER() OVER (
+        PARTITION BY b.parent_no
+        ORDER BY b.check_date DESC, b.sheet_no DESC
+      ) AS rn
+    FROM bom_stru1 b WITH (NOLOCK)
+    JOIN #bq_todo t ON t.parent_no = b.parent_no
+    WHERE b.sheet_sta = '1'
+  ) x
+  WHERE rn = 1;
+
+  DELETE FROM #bq_todo;
+
+  -- Cấp kế: các con là S hoặc J chưa duyệt.
+  INSERT INTO #bq_todo
+  SELECT DISTINCT sg.child_no
+  FROM #bq_sheet s
+  JOIN v_bom_stru2_sc_gi sg WITH (NOLOCK)
+    ON sg.sheet_no = s.sheet_no
+    AND sg.parent_no = s.parent_no
+  WHERE LEFT(sg.child_no, 1) IN ('S', 'J')
+    AND NOT EXISTS (SELECT 1 FROM #bq_done d WHERE d.parent_no = sg.child_no);
+END;
+
+-- Định mức từng dòng BOM (giữ cả dòng COMMON-999 để áp cho mọi nhóm).
 SELECT
-  sg.parent_no AS prod_no,
-  sg.child_no,
-  sg.size_grp,
-  AVG(sg.qty) AS usage_g
-INTO #bom
-FROM v_bom_stru2_sc_gi sg WITH (NOLOCK)
-JOIN bom_stru1 b1 WITH (NOLOCK) ON b1.sheet_no = sg.sheet_no
-WHERE sg.size_grp NOT LIKE 'COMMON-999'
-  AND b1.sheet_sta = '1'
-  AND sg.parent_no IN (SELECT DISTINCT f_goods FROM #so)
+  sg.parent_no, sg.child_no, sg.size_grp,
+  AVG(CAST(sg.qty AS float)) AS qty
+INTO #bl
+FROM #bq_sheet s
+JOIN v_bom_stru2_sc_gi sg WITH (NOLOCK)
+  ON sg.sheet_no = s.sheet_no
+  AND sg.parent_no = s.parent_no
 GROUP BY sg.parent_no, sg.child_no, sg.size_grp;
+
+SELECT DISTINCT size_grp INTO #grp FROM #so_sg;
+
+-- Quy về từng nhóm của style: có dòng riêng nhóm thì dùng, không thì dùng COMMON-999.
+SELECT
+  p.parent_no, p.child_no, g.size_grp,
+  COALESCE(
+    MAX(CASE WHEN l.size_grp = g.size_grp THEN l.qty END),
+    MAX(CASE WHEN l.size_grp = 'COMMON-999' THEN l.qty END)
+  ) AS qty
+INTO #blg
+FROM (SELECT DISTINCT parent_no, child_no FROM #bl) p
+CROSS JOIN #grp g
+JOIN #bl l
+  ON l.parent_no = p.parent_no
+  AND l.child_no = p.child_no
+GROUP BY p.parent_no, p.child_no, g.size_grp
+HAVING COALESCE(
+  MAX(CASE WHEN l.size_grp = g.size_grp THEN l.qty END),
+  MAX(CASE WHEN l.size_grp = 'COMMON-999' THEN l.qty END)
+) IS NOT NULL;
+
+-- Nhân dồn qua các cấp F -> S -> J -> nguyên liệu.
+;WITH tree AS (
+  SELECT
+    f.f_goods AS prod_no,
+    b.child_no,
+    b.size_grp,
+    CAST(b.qty AS float) AS u_qty,
+    1 AS lvl
+  FROM (SELECT DISTINCT f_goods FROM #so) f
+  JOIN #blg b ON b.parent_no = f.f_goods
+
+  UNION ALL
+
+  SELECT
+    t.prod_no,
+    b.child_no,
+    t.size_grp,
+    t.u_qty * b.qty,
+    t.lvl + 1
+  FROM tree t
+  JOIN #blg b
+    ON b.parent_no = t.child_no
+    AND b.size_grp = t.size_grp
+  WHERE t.lvl < 6
+)
+SELECT
+  prod_no, child_no, size_grp,
+  SUM(u_qty) AS usage_g
+INTO #bom
+FROM tree t
+WHERE LEFT(child_no, 1) NOT IN ('S', 'J')               -- bỏ S, J trung gian, chỉ giữ nguyên liệu lá
+  AND NOT EXISTS (SELECT 1 FROM #bl x WHERE x.parent_no = t.child_no)
+GROUP BY prod_no, child_no, size_grp
+OPTION (MAXRECURSION 10);
 
 ;WITH l AS (
   SELECT
     i.*,
     CASE
       WHEN LEFT(i.goods_no, 2) IN ('M1','M2','M3') THEN LEFT(i.goods_no, 2)
-      ELSE 'B'
+      WHEN LEFT(i.goods_no, 1) = 'B' THEN 'B'
+      ELSE 'XX'
     END AS mat_cat,
     i.qty * ISNULL(p.unit_usd, 0) AS usd,
     CASE
@@ -596,7 +818,7 @@ SELECT
   SUM(CASE WHEN r.mat_cat = 'M2' THEN r.usd ELSE 0 END) / NULLIF(q.qty_g, 0) AS m2,
   SUM(CASE WHEN r.mat_cat = 'M3' THEN r.usd ELSE 0 END) / NULLIF(q.qty_g, 0) AS m3,
   SUM(CASE WHEN r.mat_cat = 'B' THEN r.usd ELSE 0 END) / NULLIF(q.qty_g, 0) AS opa,
-  SUM(r.usd) / NULLIF(q.qty_g, 0) AS m_ttl,
+  SUM(CASE WHEN r.mat_cat IN ('M1','M2','M3','B') THEN r.usd ELSE 0 END) / NULLIF(q.qty_g, 0) AS m_ttl,
   (
     SELECT
       CASE d.mat_cat
@@ -621,7 +843,9 @@ WHERE q.size_grp = @g
 GROUP BY q.size_grp, q.qty_g;
 
 DROP TABLE IF EXISTS
-  #so, #sg, #sg_sz, #grp_n, #so_sz, #line_n, #line_grp,
+  #so, #so_k, #sg, #sg_sz, #grp_n, #so_sz, #line_n, #line_grp,
   #so_sg0, #so_sg, #mo, #mo_key, #mo_tot, #mo_sz,
-  #iss, #isz, #price, #bom, #alloc, #r_detail, #r;
+  #mrp_c, #mlines, #jw,
+  #iss, #isz, #price, #bom, #alloc, #r_detail, #r,
+  #bq_todo, #bq_done, #bq_sheet, #bl, #grp, #blg;
 `;
