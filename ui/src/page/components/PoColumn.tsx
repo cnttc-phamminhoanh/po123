@@ -97,6 +97,14 @@ const detailMoney = (value: number): string => {
   return money(value, abs > 0 && abs < 0.01 ? 4 : 2);
 };
 
+/** base_name dạng "M1 - Main Material 主料" -> "Main Material" để vừa một hàng. */
+const shortMaterialCode = (value: string): string =>
+  value
+    .replace(/^M[123]\s*-\s*/i, '')
+    .replace(/[\u3000-\u303F\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
 const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) => {
   const t = useT();
   const [openCategory, setOpenCategory] = useState<BomCategory | null>('fabric');
@@ -161,17 +169,20 @@ const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) 
                 <span>{t('materialAmount')}</span>
               </div>
               <div className="mat-detail-list">
-                {details.map((line, lineIndex) => (
-                  <div className="mat-detail-row" key={`${line.category}-${line.code}-${lineIndex}`}>
-                    <span className="mat-detail-code" title={line.code || '—'}>
-                      {line.code || '—'}
-                    </span>
-                    <span className="mat-detail-name" title={line.name || '—'}>
-                      {line.name || '—'}
-                    </span>
-                    <span className="mat-detail-amount">{detailMoney(line.amount)}</span>
-                  </div>
-                ))}
+                {details.map((line, lineIndex) => {
+                  const codeLabel = shortMaterialCode(line.code || '—');
+                  return (
+                    <div className="mat-detail-row" key={`${line.category}-${line.code}-${lineIndex}`}>
+                      <span className="mat-detail-code" title={codeLabel}>
+                        {codeLabel}
+                      </span>
+                      <span className="mat-detail-name" title={line.name || '—'}>
+                        {line.name || '—'}
+                      </span>
+                      <span className="mat-detail-amount">{detailMoney(line.amount)}</span>
+                    </div>
+                  );
+                })}
               </div>
             </>
           ) : (
