@@ -782,7 +782,7 @@
 }
 
 .cost-mix-title {
-  margin-bottom: 6px;
+  margin-bottom: 15px;
   font-size: 8.5px;
   font-weight: 700;
   line-height: 1.2;
@@ -905,6 +905,20 @@
 
 .po-chart[data-group='materials'] .mat-sum {
   margin: 0 10px;
+}
+
+/* Mini chart (nhân công, chi phí khác): dồn nội dung lên trên và giữ khoảng thở
+   thống nhất giữa band và thanh mini-bar. */
+.po-chart[data-group='labors'],
+.po-chart[data-group='others'] {
+  justify-content: flex-start;
+  padding-top: 28px;
+  padding-bottom: 12px;
+}
+
+/* Nhóm chi phí khác chỉ có 3 hạng mục: không giữ chiều cao tối thiểu 150px. */
+.po-chart[data-group='others'] {
+  min-height: 0;
 }
 
 .mat-sum-foot {
