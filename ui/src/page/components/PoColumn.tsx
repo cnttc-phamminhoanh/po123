@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, ReactNode, Ref } from 'react';
 import { ChevronDown, ChevronsDown } from 'lucide-react';
 import type { BomCategory, PoCostDetail } from '../../types';
@@ -25,6 +25,8 @@ interface PoColumnProps {
   openGroups: Record<CostGroup, boolean>;
   onToggleGroup: (group: CostGroup) => void;
   onToggleAllGroups: () => void;
+  activeMaterial: BomCategory | null;
+  onSelectMaterial: (category: BomCategory | null) => void;
 }
 
 interface GroupBlockProps {
@@ -105,23 +107,26 @@ const shortMaterialCode = (value: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) => {
+const MatSumRow = ({
+  po,
+  activeCategory,
+  onSelectCategory,
+}: {
+  po: PoCostDetail;
+  activeCategory: BomCategory | null;
+  onSelectCategory: (category: BomCategory | null) => void;
+}) => {
   const t = useT();
-  const [openCategory, setOpenCategory] = useState<BomCategory | null>('fabric');
-
-  useEffect(() => {
-    if (groupOpen) setOpenCategory('fabric');
-  }, [groupOpen]);
-  const activeCell = MAT_SUM_CELLS.find((cell) => cell.category === openCategory) ?? null;
-  const details = openCategory
-    ? po.materialDetails.filter((line) => line.category === openCategory)
+  const activeCell = MAT_SUM_CELLS.find((cell) => cell.category === activeCategory) ?? null;
+  const details = activeCategory
+    ? po.materialDetails.filter((line) => line.category === activeCategory)
     : [];
 
   return (
     <>
       <div className="mat-sum">
         {MAT_SUM_CELLS.map((cell) => {
-          const isOpen = openCategory === cell.category;
+          const isOpen = activeCategory === cell.category;
           return (
             <button
               type="button"
@@ -132,7 +137,7 @@ const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) 
                 tag: cell.tag,
                 category: t(cell.labelKey),
               })}`}
-              onClick={() => setOpenCategory(isOpen ? null : cell.category)}
+              onClick={() => onSelectCategory(isOpen ? null : cell.category)}
             >
               <span className="mat-sum-tag">{cell.tag}</span>
               <span className="mat-sum-value">{money(matCellValue(po, cell.category))}</span>
@@ -144,18 +149,12 @@ const MatSumRow = ({ po, groupOpen }: { po: PoCostDetail; groupOpen: boolean }) 
 
       {activeCell ? (
         <div className="mat-detail">
-          <div className="mat-detail-head">
-            <span>
-              {t('materialDetailTitle', {
-                tag: activeCell.tag,
-                category: t(activeCell.labelKey),
-              })}
-            </span>
+          <div className="mat-detail-head mat-detail-head--actions">
             <button
               type="button"
               className="mat-detail-close"
               aria-label={t('close')}
-              onClick={() => setOpenCategory(null)}
+              onClick={() => onSelectCategory(null)}
             >
               ×
             </button>
@@ -216,6 +215,8 @@ const PoColumn = ({
   openGroups,
   onToggleGroup,
   onToggleAllGroups,
+  activeMaterial,
+  onSelectMaterial,
 }: PoColumnProps) => {
   const t = useT();
   const palette: PoPalette = paletteOf(po.poNo, index);
@@ -362,7 +363,11 @@ const PoColumn = ({
           onToggle={() => onToggleGroup('materials')}
           master={masterButton}
         >
-          <MatSumRow po={po} groupOpen={openGroups.materials} />
+          <MatSumRow
+            po={po}
+            activeCategory={activeMaterial}
+            onSelectCategory={onSelectMaterial}
+          />
         </GroupBlock>
 
         <GroupBlock

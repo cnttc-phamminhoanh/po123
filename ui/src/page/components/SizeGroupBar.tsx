@@ -5,9 +5,15 @@ interface SizeGroupBarProps {
   sizeGroups: string[];
   value: string;
   onChange: (sizeGroup: string) => void;
+  busy?: boolean;
 }
 
-const SizeGroupBar = ({ sizeGroups, value, onChange }: SizeGroupBarProps) => {
+const SizeGroupBar = ({
+  sizeGroups,
+  value,
+  onChange,
+  busy = false,
+}: SizeGroupBarProps) => {
   const t = useT();
   return (
     <div className="size-bar">
@@ -16,6 +22,7 @@ const SizeGroupBar = ({ sizeGroups, value, onChange }: SizeGroupBarProps) => {
         className="size-options"
         role="group"
         aria-label={t('sizeGroupFilter')}
+        aria-busy={busy}
       >
         {sizeGroups.map((sizeGroup: string) => (
           <button
@@ -23,6 +30,7 @@ const SizeGroupBar = ({ sizeGroups, value, onChange }: SizeGroupBarProps) => {
             type="button"
             className="size-chip"
             aria-pressed={value === sizeGroup}
+            disabled={busy}
             onClick={() => onChange(sizeGroup)}
           >
             {sizeGroupLabel(sizeGroup, t('sizeGroupCommon'))}

@@ -164,6 +164,8 @@
 }
 
 .size-chip {
+  display: inline-flex;
+  align-items: center;
   padding: 3px 11px;
   border: 1px solid #E8E8E8;
   border-radius: 999px;
@@ -190,6 +192,14 @@
   color: #FFFFFF;
   font-weight: 600;
   box-shadow: 0 2px 8px rgba(139, 92, 246, 0.32);
+}
+
+.size-chip:disabled {
+  cursor: wait;
+}
+
+.size-chip:disabled:not([aria-pressed="true"]) {
+  opacity: 0.55;
 }
 
 .load-state {
@@ -1006,12 +1016,17 @@
   align-self: stretch;
   box-sizing: border-box;
   width: 100%;
-  height: 150px;
+  height: 260px;
   margin: 8px 0 10px;
   padding: 11px 12px;
   background: #FBF9FF;
   border: 1px solid #E7E1F8;
   border-radius: 8px;
+}
+
+.mat-detail-head--actions {
+  justify-content: flex-end;
+  margin-bottom: 4px;
 }
 
 .mat-detail-head {

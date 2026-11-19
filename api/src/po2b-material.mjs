@@ -43,7 +43,7 @@ DROP TABLE IF EXISTS
     #line_grp, #q0, #q, #fg, #so_k, #fg_list,
     #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rc,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl,
-    #use, #alloc_detail, #alloc, #detail;
+    #use, #need, #alloc_detail, #alloc, #out, #detail;
 
 SET @fc_mode = ISNULL(@fc_mode_override, 2);
 SET @is_common = CASE WHEN @size_grp = 'COMMON-999' THEN 1 ELSE 0 END;
@@ -222,29 +222,59 @@ CREATE UNIQUE CLUSTERED INDEX IX_line_n ON #line_n(so_no, so_id, f_goods);
 
 ;WITH cover AS (
     SELECT
-        z.so_no,
-        z.so_id,
-        z.f_goods,
+        z.so_no, z.so_id, z.f_goods,
         g.size_grp,
         COUNT(DISTINCT z.sz) AS n_matched,
         gn.n_def
     FROM #so_sz z
     JOIN #sg_sz g ON g.sz = z.sz
     JOIN #grp_n gn ON gn.size_grp = g.size_grp
-    GROUP BY z.so_no, z.so_id, z.f_goods, g.size_grp, gn.n_def
+    GROUP BY
+        z.so_no, z.so_id, z.f_goods,
+        g.size_grp, gn.n_def
 ),
 ranked AS (
     SELECT
         c.*,
+        ISNULL(ov.n_over, 0) AS n_over,
         ROW_NUMBER() OVER (
             PARTITION BY c.so_no, c.so_id, c.f_goods
-            ORDER BY c.n_def, c.size_grp
+            ORDER BY
+                ISNULL(ov.n_over, 0),   -- NEXT: nhóm ít chồng size với dòng khác thì chọn trước
+                c.n_def,
+                c.size_grp
         ) AS rn
     FROM cover c
     JOIN #line_n ln
         ON ln.so_no = c.so_no
         AND ln.so_id = c.so_id
         AND ln.f_goods = c.f_goods
+    OUTER APPLY (
+        /* Đếm size nằm trong nhóm này nhưng KHÔNG có ở dòng này,
+           mà lại đang được dòng SO khác của style dùng. */
+        SELECT COUNT(DISTINCT g2.sz) AS n_over
+        FROM #sg_sz g2
+        WHERE UPPER(LTRIM(RTRIM(ISNULL(@cust_name, '')))) = 'NEXT'
+          AND g2.size_grp = c.size_grp
+          AND NOT EXISTS (
+              SELECT 1
+              FROM #so_sz t
+              WHERE t.so_no = c.so_no
+                AND t.so_id = c.so_id
+                AND t.f_goods = c.f_goods
+                AND t.sz = g2.sz
+          )
+          AND EXISTS (
+              SELECT 1
+              FROM #so_sz o
+              WHERE o.sz = g2.sz
+                AND NOT (
+                    o.so_no = c.so_no
+                    AND o.so_id = c.so_id
+                    AND o.f_goods = c.f_goods
+                )
+          )
+    ) ov
     WHERE c.n_matched = ln.n_sz
 )
 SELECT so_no, so_id, f_goods, size_grp
@@ -252,7 +282,7 @@ INTO #line_grp
 FROM ranked
 WHERE rn = 1;
 
-CREATE UNIQUE CLUSTERED INDEX IX_line_grp ON #line_grp(so_no, so_id, f_goods);
+CREATE CLUSTERED INDEX IX_line_grp ON #line_grp(so_no, so_id, f_goods);
 
 SELECT
     z.so_no,
@@ -539,8 +569,8 @@ CREATE UNIQUE CLUSTERED INDEX IX_rc ON #rc(plan_no, plan_id);
 
 /* 7. CHI PHÍ THEO MÃ F + MÃ VẬT LIỆU (P + C), GỘP TOÀN STYLE */
 SELECT
-    '' AS so_no,
-    0 AS so_id,
+    w.so_no,
+    w.so_id,
     w.f_goods,
     w.mat_no,
     CASE
@@ -554,14 +584,13 @@ JOIN #rc rc
     ON rc.plan_no = w.plan_no
     AND rc.plan_id = w.plan_id
 GROUP BY
-    w.f_goods,
-    w.mat_no,
+    w.so_no, w.so_id, w.f_goods, w.mat_no,
     CASE
         WHEN LEFT(w.mat_no, 1) = 'M' THEN LEFT(w.mat_no, 2)
         ELSE LEFT(w.mat_no, 1)
     END;
 
-CREATE CLUSTERED INDEX IX_money ON #money(f_goods, mat_no);
+CREATE CLUSTERED INDEX IX_money ON #money(so_no, so_id, f_goods, mat_no);
 
 /* 8. TRUY BOM TỐI ĐA 6 CẤP */
 CREATE TABLE #bq_todo (parent_no varchar(30) PRIMARY KEY);
@@ -793,4 +822,4 @@ DROP TABLE IF EXISTS
     #line_grp, #q0, #q, #fg, #so_k, #fg_list,
     #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rc,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl,
-    #use, #alloc_detail, #alloc, #detail;`;
+    #use, #need, #alloc_detail, #alloc, #out, #detail;`;

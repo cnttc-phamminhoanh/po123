@@ -94,12 +94,22 @@ SET @is_haddad = CASE
 SET @len = CASE WHEN @is_haddad = 1 THEN 8 ELSE 60 END;
 DELETE FROM #so WHERE LEFT(bar_no, @len) <> LEFT(@style, @len);
 
+IF NOT EXISTS (SELECT 1 FROM #so)
+BEGIN
+  RETURN;
+END;
+
 -- Chọn season
 SET @s = @season;
 IF @s IS NULL
   SELECT TOP 1 @s = season FROM #so ORDER BY sheet_date DESC, so_no DESC;
 SET @s = ISNULL(@s, '');
 DELETE FROM #so WHERE ISNULL(season, '') <> @s;
+
+IF NOT EXISTS (SELECT 1 FROM #so)
+BEGIN
+  RETURN;
+END;
 
 SELECT TOP 1 @cust_name = cust_name FROM #so;
 
@@ -168,6 +178,7 @@ best AS (
       ORDER BY
         CASE WHEN c.n_matched = ln.n_sz THEN 0 ELSE 1 END,
         c.n_matched DESC,
+        ISNULL(ov.n_over, 0),      -- NEXT: nhóm ít chồng size với dòng khác thì chọn trước
         c.n_def,
         c.size_grp
     ) AS rn
@@ -176,6 +187,24 @@ best AS (
     ON ln.so_no = c.so_no
     AND ln.so_id = c.so_id
     AND ln.f_goods = c.f_goods
+  OUTER APPLY (
+    -- Đếm size nằm trong nhóm này nhưng KHÔNG có ở dòng này,
+    -- mà lại đang được dòng SO khác của style dùng
+    SELECT COUNT(DISTINCT g2.sz) AS n_over
+    FROM #sg_sz g2
+    WHERE UPPER(LTRIM(RTRIM(ISNULL(@cust_name, '')))) = 'NEXT'
+      AND g2.size_grp = c.size_grp
+      AND NOT EXISTS (
+        SELECT 1 FROM #so_sz t
+        WHERE t.so_no = c.so_no AND t.so_id = c.so_id
+          AND t.f_goods = c.f_goods AND t.sz = g2.sz
+      )
+      AND EXISTS (
+        SELECT 1 FROM #so_sz o
+        WHERE o.sz = g2.sz
+          AND NOT (o.so_no = c.so_no AND o.so_id = c.so_id AND o.f_goods = c.f_goods)
+      )
+  ) ov
 )
 SELECT b.so_no, b.so_id, b.f_goods, b.size_grp
 INTO #line_grp
@@ -249,7 +278,9 @@ IF @size_grp IS NOT NULL
 BEGIN
   IF EXISTS (SELECT 1 FROM #so_sg WHERE size_grp = @size_grp)
     SET @g = @size_grp;
-  -- Nếu size group UI đang xem không có trong SO: để trống, không tự lấy nhóm khác.
+  ELSE
+    -- Size group UI đang xem không có trong SO: không tự lấy nhóm khác.
+    RETURN;
 END
 ELSE
 BEGIN

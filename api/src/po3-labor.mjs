@@ -353,11 +353,13 @@ best AS (
         c.size_grp,
         c.n_matched,
         c.n_def,
+        ISNULL(ov.n_over, 0) AS n_over,
         ROW_NUMBER() OVER (
             PARTITION BY c.so_no, c.so_id, c.f_goods
             ORDER BY
                 CASE WHEN c.n_matched = ln.n_sz THEN 0 ELSE 1 END,
                 c.n_matched DESC,
+                ISNULL(ov.n_over, 0),      -- NEXT: nhóm ít chồng size với dòng khác thì chọn trước
                 c.n_def,
                 c.size_grp
         ) AS rn
@@ -366,6 +368,22 @@ best AS (
         ON ln.so_no = c.so_no
        AND ln.so_id = c.so_id
        AND ln.f_goods = c.f_goods
+    OUTER APPLY (
+        -- Đếm size nằm trong nhóm này nhưng KHÔNG có ở dòng này,
+        -- mà lại đang được dòng SO khác của style dùng
+        SELECT COUNT(DISTINCT g2.sz) AS n_over
+        FROM #sg_sz g2
+        WHERE UPPER(LTRIM(RTRIM(ISNULL(@cust_name,'')))) = 'NEXT'
+          AND g2.size_grp = c.size_grp
+          AND NOT EXISTS
+              (SELECT 1 FROM #so_sz t
+               WHERE t.so_no = c.so_no AND t.so_id = c.so_id
+                 AND t.f_goods = c.f_goods AND t.sz = g2.sz)
+          AND EXISTS
+              (SELECT 1 FROM #so_sz o
+               WHERE o.sz = g2.sz
+                 AND NOT (o.so_no = c.so_no AND o.so_id = c.so_id AND o.f_goods = c.f_goods))
+    ) ov
 )
 SELECT
     b.so_no,
@@ -544,7 +562,10 @@ OUTER APPLY (
                         AND gv.min_month IS NOT NULL
                         AND gv.max_month IS NOT NULL
                         AND av.asm_month BETWEEN gv.min_month AND gv.max_month
-                           THEN 2
+                           THEN CASE WHEN av.asm_month = gv.min_month
+                                      AND gv.min_month < gv.max_month
+                                     THEN 3
+                                     ELSE 2 END
                    END AS match_rank
             FROM #sg_so g
             CROSS APPLY (

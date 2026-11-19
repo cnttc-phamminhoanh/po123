@@ -44,7 +44,7 @@ DECLARE
     @share float = 1;
 
 DROP TABLE IF EXISTS
-    #so, #sg_sz, #grp_n, #so_sz, #line_n,
+    #so, #sg_sz, #grp_n, #so_sz, #line_n, #cand, #anchor,
     #line_grp, #q0, #q, #fg, #sib, #sibp, #sibmat, #so_k, #fg_list,
     #mrp_so, #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rate, #po, #pos,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl, #use, #alloc_detail, #alloc, #detail;
@@ -255,6 +255,7 @@ GROUP BY so_no, so_id, f_goods;
 
 CREATE UNIQUE CLUSTERED INDEX IX_line_n ON #line_n(so_no, so_id, f_goods);
 
+/* Ứng viên: group bao trọn các size của dòng, rk = hạng theo n_def (nhỏ nhất = 1) */
 ;WITH cover AS (
     SELECT
         z.so_no,
@@ -267,20 +268,61 @@ CREATE UNIQUE CLUSTERED INDEX IX_line_n ON #line_n(so_no, so_id, f_goods);
     JOIN #sg_sz g ON g.sz = z.sz
     JOIN #grp_n gn ON gn.size_grp = g.size_grp
     GROUP BY z.so_no, z.so_id, z.f_goods, g.size_grp, gn.n_def
+)
+SELECT
+    c.so_no,
+    c.so_id,
+    c.f_goods,
+    c.size_grp,
+    c.n_def,
+    DENSE_RANK() OVER (
+        PARTITION BY c.so_no, c.so_id, c.f_goods
+        ORDER BY c.n_def
+    ) AS rk
+INTO #cand
+FROM cover c
+JOIN #line_n ln
+    ON ln.so_no = c.so_no
+    AND ln.so_id = c.so_id
+    AND ln.f_goods = c.f_goods
+WHERE c.n_matched = ln.n_sz;
+
+/* Group "neo": dòng chỉ có DUY NHẤT 1 group tốt nhất */
+SELECT DISTINCT c.size_grp
+INTO #anchor
+FROM #cand c
+WHERE c.rk = 1
+  AND NOT EXISTS (
+      SELECT 1
+      FROM #cand t
+      WHERE t.so_no = c.so_no
+        AND t.so_id = c.so_id
+        AND t.f_goods = c.f_goods
+        AND t.rk = 1
+        AND t.size_grp <> c.size_grp
+  );
+
+/* Khi hòa n_def: chọn group ít chồng size với group neo */
+;WITH flagged AS (
+    SELECT
+        c.*,
+        (
+            SELECT COUNT(DISTINCT s2.sz)
+            FROM #anchor a
+            JOIN #sg_sz s1 ON s1.size_grp = a.size_grp
+            JOIN #sg_sz s2 ON s2.size_grp = c.size_grp AND s2.sz = s1.sz
+            WHERE a.size_grp <> c.size_grp
+        ) AS overlap
+    FROM #cand c
 ),
 ranked AS (
     SELECT
-        c.*,
+        *,
         ROW_NUMBER() OVER (
-            PARTITION BY c.so_no, c.so_id, c.f_goods
-            ORDER BY c.n_def, c.size_grp
+            PARTITION BY so_no, so_id, f_goods
+            ORDER BY rk, overlap, size_grp
         ) AS rn
-    FROM cover c
-    JOIN #line_n ln
-        ON ln.so_no = c.so_no
-        AND ln.so_id = c.so_id
-        AND ln.f_goods = c.f_goods
-    WHERE c.n_matched = ln.n_sz
+    FROM flagged
 )
 SELECT so_no, so_id, f_goods, size_grp
 INTO #line_grp
@@ -900,7 +942,7 @@ FROM (
 ) a;
 
 DROP TABLE IF EXISTS
-    #so, #sg_sz, #grp_n, #so_sz, #line_n,
+    #so, #sg_sz, #grp_n, #so_sz, #line_n, #cand, #anchor,
     #line_grp, #q0, #q, #fg, #sib, #sibp, #sibmat, #so_k, #fg_list,
     #mrp_so, #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rate, #po, #pos,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl, #use, #alloc_detail, #alloc, #detail;

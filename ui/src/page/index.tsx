@@ -11,7 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../ui/select';
-import { useLatestStyle, useStyleDetail } from './hooks';
+import { useStyleDetail } from './hooks';
 import type { CostGroup } from './constants';
 import { errorMessage, storageErrorText } from './utils/error';
 import SummaryView from './components/SummaryView';
@@ -28,6 +28,9 @@ import './page.css';
 
 type UploadKind = 'single' | 'bulk';
 
+/** Mã hàng mở màn mặc định. */
+const DEFAULT_STYLE_CODE = '1W390910';
+
 const avatarLabel = (name: string, code: string): string => {
   const source = name.trim() || code.trim();
   if (!source) return '?';
@@ -40,9 +43,8 @@ const avatarLabel = (name: string, code: string): string => {
 
 const PoSummaryPage = () => {
   const t = useT();
-  const latestQuery = useLatestStyle();
-  const [inputCode, setInputCode] = useState<string>('');
-  const [draftCode, setDraftCode] = useState<string>('');
+  const [inputCode, setInputCode] = useState<string>(DEFAULT_STYLE_CODE);
+  const [draftCode, setDraftCode] = useState<string>(DEFAULT_STYLE_CODE);
   const [draftSeason, setDraftSeason] = useState<string>('');
   const [draftSoSeason, setDraftSoSeason] = useState<string>('');
   const [sizeGroup, setSizeGroup] = useState<string>('');
@@ -66,15 +68,6 @@ const PoSummaryPage = () => {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<HTMLDivElement>(null);
-
-  /** Mở màn bằng mã hàng mới nhất; người dùng vẫn có thể gõ mã khác để tra. */
-  useEffect(() => {
-    if (draftCode) return;
-    const latest = latestQuery.data;
-    if (!latest?.code) return;
-    setInputCode(latest.code);
-    setDraftCode(latest.code);
-  }, [latestQuery.data, draftCode]);
 
   /** Kiểm tra phiên đăng nhập hiện có; chỉ dùng để bật/tắt nút upload. */
   useEffect(() => {
@@ -129,6 +122,11 @@ const PoSummaryPage = () => {
   const isDifferentStyle =
     Boolean(detail) &&
     detail!.code.trim().toUpperCase() !== draftCode.trim().toUpperCase();
+  const isUpdatingSameStyle =
+    Boolean(detail) &&
+    detailQuery.isPlaceholderData &&
+    detailQuery.isFetching &&
+    !isDifferentStyle;
 
   const handleSeasonChange = (season: string) => {
     setDraftSeason(season);
@@ -245,16 +243,6 @@ const PoSummaryPage = () => {
 
   const renderBody = () => {
     if (!draftCode) {
-      if (latestQuery.isLoading) {
-        return <CatAstronautLoader label={t('loadingStyles')} />;
-      }
-      if (latestQuery.isError) {
-        return (
-          <div className="load-state">
-            {errorMessage(latestQuery.error, t('stylesLoadFailed'))}
-          </div>
-        );
-      }
       return <div className="load-state">{t('selectStyleToView')}</div>;
     }
     if (detailQuery.isLoading || (detailQuery.isPlaceholderData && isDifferentStyle)) {
@@ -279,6 +267,8 @@ const PoSummaryPage = () => {
         onToggleGroup={handleToggleGroup}
         onToggleAllGroups={handleToggleAllGroups}
         onPhotoAction={() => openUpload('single')}
+        loading={isUpdatingSameStyle}
+        loadingLabel={t('loadingCostSheet')}
       />
     );
   };
@@ -493,6 +483,7 @@ const PoSummaryPage = () => {
               sizeGroups={sizeGroupOptions}
               value={appliedSizeGroup}
               onChange={handleSizeGroupChange}
+              busy={isUpdatingSameStyle}
             />
           ) : null}
         </div>
