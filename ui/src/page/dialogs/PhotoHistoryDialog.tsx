@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Loader2, Search } from 'lucide-react';
 import { fetchPhotoHistory, type PhotoHistoryEntry } from '../../lib/auth';
 import { useI18n } from '../../i18n';
@@ -23,7 +23,7 @@ interface HistoryFilters {
   to: string;
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 const EMPTY_FILTERS: HistoryFilters = {
   style: '',
   uploader: '',
@@ -58,6 +58,8 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [loaded, setLoaded] = useState(false);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const scrollToIndexRef = useRef<number | null>(null);
 
   const load = async (
     nextFilters: HistoryFilters,
@@ -72,6 +74,8 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
         limit: PAGE_SIZE,
         offset,
       });
+      if (append) scrollToIndexRef.current = items.length;
+      else scrollToIndexRef.current = null;
       setItems((prev) =>
         append ? [...prev, ...result.items] : result.items,
       );
@@ -83,6 +87,23 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const index = scrollToIndexRef.current;
+    const list = listRef.current;
+    if (index === null || !list) return;
+    scrollToIndexRef.current = null;
+    requestAnimationFrame(() => {
+      // Dòng đầu tiên của trang mới; bỏ qua dòng tiêu đề.
+      const row = list.querySelectorAll<HTMLElement>('.history-row')[index + 1];
+      if (!row) return;
+      const top =
+        row.getBoundingClientRect().top -
+        list.getBoundingClientRect().top +
+        list.scrollTop;
+      list.scrollTo({ top, behavior: 'smooth' });
+    });
+  }, [items]);
 
   useEffect(() => {
     if (!open) return;
@@ -211,7 +232,7 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
             <div className="user-empty">{t('historyEmpty')}</div>
           ) : items.length > 0 ? (
             <>
-              <div className="history-list">
+              <div className="history-list" ref={listRef}>
                 <div className="history-row history-row--head">
                   <span>{t('historyTime')}</span>
                   <span>{t('historyStyle')}</span>
@@ -257,6 +278,12 @@ const PhotoHistoryDialog = ({ open, onOpenChange }: PhotoHistoryDialogProps) => 
               </div>
               {items.length < total ? (
                 <div className="history-more">
+                  <span className="history-progress">
+                    {t('historyShown', {
+                      shown: items.length,
+                      total,
+                    })}
+                  </span>
                   <button
                     type="button"
                     className="po-btn"

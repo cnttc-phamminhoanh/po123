@@ -6,6 +6,8 @@
  * Dữ liệu SO và size_grp_gi được lấy qua linked server [RDS_PO123] như SQL gốc.
  *
  * Không còn dùng bảng tổng hợp ig_wo_step_avg_cost.
+ * Size cost của NEXT được map theo tên size và khoảng tháng; chi phí labor
+ * lấy trung bình (AVG) theo từng mã F thay vì cộng dồn các WO tốt nhất.
  */
 export const SQL_PO3_LABOR = `
 SET NOCOUNT ON;
@@ -47,6 +49,10 @@ DROP TABLE IF EXISTS #candidate;
 DROP TABLE IF EXISTS #wo_last;
 DROP TABLE IF EXISTS #wo;
 DROP TABLE IF EXISTS #so;
+DROP TABLE IF EXISTS #goods_process;
+DROP TABLE IF EXISTS #sg_so;
+DROP TABLE IF EXISTS #asm_sz;
+DROP TABLE IF EXISTS #sz_map;
 
 /* 1. Lấy danh sách SO từ ERP T8 (linked server RDS_PO123) */
 CREATE TABLE #so (
@@ -352,11 +358,7 @@ best AS (
             ORDER BY
                 CASE WHEN c.n_matched = ln.n_sz THEN 0 ELSE 1 END,
                 c.n_matched DESC,
-                c.n_def ASC,
-                TRY_CAST(
-                    SUBSTRING(c.size_grp, CHARINDEX('-', c.size_grp) + 1, 10)
-                    AS int
-                ) ASC,
+                c.n_def,
                 c.size_grp
         ) AS rn
     FROM cover c
@@ -508,7 +510,91 @@ GROUP BY
     s.step_no,
     UPPER(REPLACE(a.sizx,' ',''));
 
-/* Map size cost theo đúng size_grp đã chọn */
+/* 10b. Map size ig_pystpasm -> nhóm size.
+   NEXT: ưu tiên khớp đúng tên size, sau đó khớp khoảng tháng (6M, 2Y...).
+   Khách khác: khớp đúng tên size như cũ. */
+SELECT g.size_grp, g.sz
+INTO #sg_so
+FROM #sg_sz g
+WHERE g.size_grp IN (
+    SELECT DISTINCT size_grp
+    FROM #so_sg
+    WHERE size_grp <> 'COMMON-999'
+);
+
+SELECT DISTINCT sz
+INTO #asm_sz
+FROM #asm;
+
+SELECT s.sz, m.size_grp
+INTO #sz_map
+FROM #asm_sz s
+OUTER APPLY (
+    SELECT DISTINCT r.size_grp
+    FROM (
+        SELECT q.size_grp, q.match_rank,
+               MIN(q.match_rank) OVER () AS best_rank
+        FROM (
+            SELECT g.size_grp,
+                   CASE
+                       WHEN g.sz = s.sz
+                         OR (s.sz = 'FIRST' AND g.sz = 'FIRSTSIZE')
+                           THEN 1
+                       WHEN av.asm_month IS NOT NULL
+                        AND gv.min_month IS NOT NULL
+                        AND gv.max_month IS NOT NULL
+                        AND av.asm_month BETWEEN gv.min_month AND gv.max_month
+                           THEN 2
+                   END AS match_rank
+            FROM #sg_so g
+            CROSS APPLY (
+                SELECT
+                    CASE
+                        WHEN s.sz LIKE '[0-9]%M'
+                         AND LEFT(s.sz, LEN(s.sz)-1) NOT LIKE '%[^0-9]%'
+                            THEN CAST(LEFT(s.sz, LEN(s.sz)-1) AS int)
+                        WHEN s.sz LIKE '[0-9]%Y'
+                         AND LEFT(s.sz, LEN(s.sz)-1) NOT LIKE '%[^0-9]%'
+                            THEN CAST(LEFT(s.sz, LEN(s.sz)-1) AS int) * 12
+                    END AS asm_month
+            ) av
+            CROSS APPLY (
+                SELECT
+                    CASE WHEN g.sz LIKE '[0-9]%-[0-9]%[MY]' AND g.sz <> '1-1/2-2Y'
+                         THEN LEFT(g.sz, CHARINDEX('-', g.sz) - 1) END AS min_txt,
+                    CASE WHEN g.sz LIKE '[0-9]%-[0-9]%[MY]' AND g.sz <> '1-1/2-2Y'
+                         THEN SUBSTRING(g.sz, CHARINDEX('-', g.sz) + 1,
+                                        LEN(g.sz) - CHARINDEX('-', g.sz) - 1) END AS max_txt,
+                    CASE WHEN RIGHT(g.sz,1) = 'Y' THEN 12 ELSE 1 END AS mul
+            ) gt
+            CROSS APPLY (
+                SELECT
+                    CASE
+                        WHEN g.sz = '1-1/2-2Y' THEN 18
+                        WHEN gt.min_txt IS NOT NULL
+                         AND gt.min_txt NOT LIKE '%[^0-9]%'
+                            THEN CAST(gt.min_txt AS int) * gt.mul
+                    END AS min_month,
+                    CASE
+                        WHEN g.sz = '1-1/2-2Y' THEN 24
+                        WHEN gt.max_txt IS NOT NULL
+                         AND gt.max_txt NOT LIKE '%[^0-9]%'
+                            THEN CAST(gt.max_txt AS int) * gt.mul
+                    END AS max_month
+            ) gv
+            WHERE UPPER(LTRIM(RTRIM(ISNULL(@cust_name,'')))) = 'NEXT'
+        ) q
+        WHERE q.match_rank IS NOT NULL
+    ) r
+    WHERE r.match_rank = r.best_rank
+    UNION
+    SELECT DISTINCT g.size_grp
+    FROM #sg_sz g
+    WHERE UPPER(LTRIM(RTRIM(ISNULL(@cust_name,'')))) <> 'NEXT'
+      AND g.sz = s.sz
+) m;
+
+/* Map size cost theo nhóm */
 SELECT
     a.wo,
     a.step_no,
@@ -516,7 +602,7 @@ SELECT
     MAX(a.cost) AS asm_cost
 INTO #sc
 FROM #asm a
-LEFT JOIN #sg_sz m
+LEFT JOIN #sz_map m
     ON m.sz = a.sz
 GROUP BY
     a.wo,
@@ -602,36 +688,49 @@ BEGIN
     RETURN;
 END;
 
-/* 15. PO3 labor cost */
+/* 15. PO3 LB cost */
+SELECT
+    LEFT(b.c_style, LEN(b.c_style)-1) AS base_style,
+    w.f_goods,
+    CASE LEFT(b.raw_process,3)
+        WHEN 'CUT' THEN 'CUT'
+        WHEN 'PRI' THEN 'PRI'
+        WHEN 'EMB' THEN 'EMB'
+        WHEN 'SEW' THEN 'SEW'
+        WHEN 'FIN' THEN 'FIN'
+        WHEN 'BUT' THEN 'FIN'
+        WHEN 'IRO' THEN 'FIN'
+        WHEN 'SOC' THEN 'SOC'
+        WHEN 'PAC' THEN 'PAC'
+        ELSE 'ETC'
+    END AS process,
+    SUM(b.pcs_vnd) AS pcs_vnd
+INTO #goods_process
+FROM #best b
+INNER JOIN #candidate w
+    ON w.wo = b.wo
+GROUP BY
+    LEFT(b.c_style, LEN(b.c_style)-1),
+    w.f_goods,
+    CASE LEFT(b.raw_process,3)
+        WHEN 'CUT' THEN 'CUT'
+        WHEN 'PRI' THEN 'PRI'
+        WHEN 'EMB' THEN 'EMB'
+        WHEN 'SEW' THEN 'SEW'
+        WHEN 'FIN' THEN 'FIN'
+        WHEN 'BUT' THEN 'FIN'
+        WHEN 'IRO' THEN 'FIN'
+        WHEN 'SOC' THEN 'SOC'
+        WHEN 'PAC' THEN 'PAC'
+        ELSE 'ETC'
+    END;
+
 ;WITH process_cost AS (
     SELECT
-        CASE LEFT(raw_process,3)
-            WHEN 'CUT' THEN 'CUT'
-            WHEN 'PRI' THEN 'PRI'
-            WHEN 'EMB' THEN 'EMB'
-            WHEN 'SEW' THEN 'SEW'
-            WHEN 'FIN' THEN 'FIN'
-            WHEN 'BUT' THEN 'FIN'
-            WHEN 'IRO' THEN 'FIN'
-            WHEN 'SOC' THEN 'SOC'
-            WHEN 'PAC' THEN 'PAC'
-            ELSE 'ETC'
-        END AS process,
-        SUM(pcs_vnd / NULLIF(@vnd_rate,0)) AS pcs_usd
-    FROM #best
-    GROUP BY
-        CASE LEFT(raw_process,3)
-            WHEN 'CUT' THEN 'CUT'
-            WHEN 'PRI' THEN 'PRI'
-            WHEN 'EMB' THEN 'EMB'
-            WHEN 'SEW' THEN 'SEW'
-            WHEN 'FIN' THEN 'FIN'
-            WHEN 'BUT' THEN 'FIN'
-            WHEN 'IRO' THEN 'FIN'
-            WHEN 'SOC' THEN 'SOC'
-            WHEN 'PAC' THEN 'PAC'
-            ELSE 'ETC'
-        END
+        process,
+        AVG(pcs_vnd / NULLIF(@vnd_rate,0)) AS pcs_usd
+    FROM #goods_process
+    GROUP BY process
 ),
 base AS (
     SELECT
@@ -660,20 +759,17 @@ SELECT
     @g AS size_grp,
     CASE WHEN @is_haddad=1 THEN 'HADDAD' ELSE 'NON-HADDAD' END AS buyer,
     @vnd_rate AS ty_gia,
-    CASE WHEN @g IS NULL THEN NULL ELSE cut END AS cut,
-    CASE WHEN @g IS NULL THEN NULL ELSE pri END AS pri,
-    CASE WHEN @g IS NULL THEN NULL ELSE emb END AS emb,
-    CASE WHEN @g IS NULL THEN NULL ELSE sew END AS sew,
-    CASE WHEN @g IS NULL THEN NULL ELSE fin END AS fin,
-    CASE WHEN @g IS NULL THEN NULL ELSE soc END AS soc,
-    CASE WHEN @g IS NULL THEN NULL ELSE pac END AS pac,
-    CASE WHEN @g IS NULL THEN NULL ELSE etc END AS etc,
-    CASE WHEN @g IS NULL THEN NULL ELSE x_emb_pri END AS x_emb_pri,
-    CASE WHEN @g IS NULL THEN NULL ELSE emb_pri END AS emb_pri,
-    CASE WHEN @g IS NULL THEN NULL ELSE x_emb_pri * 0.61 * 1.6 END AS overhead,
-    CASE
-        WHEN @g IS NULL THEN NULL
-        ELSE emb_pri + (x_emb_pri * 0.61 * 1.6) + (x_emb_pri * 1.6)
-    END AS l_ttl
+    cut,
+    pri,
+    emb,
+    sew,
+    fin,
+    soc,
+    pac,
+    etc,
+    x_emb_pri,
+    emb_pri,
+    x_emb_pri * 0.61 * 1.6 AS overhead,
+    emb_pri + (x_emb_pri * 0.61 * 1.6) + (x_emb_pri * 1.6) AS l_ttl
 FROM x;
 `;
