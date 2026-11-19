@@ -126,6 +126,9 @@ const PoSummaryPage = () => {
     sizeGroup && detail?.sizeGroups.includes(sizeGroup)
       ? sizeGroup
       : detail?.terms ?? '';
+  const isDifferentStyle =
+    Boolean(detail) &&
+    detail!.code.trim().toUpperCase() !== draftCode.trim().toUpperCase();
 
   const handleSeasonChange = (season: string) => {
     setDraftSeason(season);
@@ -254,7 +257,8 @@ const PoSummaryPage = () => {
       }
       return <div className="load-state">{t('selectStyleToView')}</div>;
     }
-    if (detailQuery.isLoading) {
+    if (detailQuery.isLoading || (detailQuery.isPlaceholderData && isDifferentStyle)) {
+      // Style khác thì không giữ card cũ, tránh hiện card cũ rồi mèo load rồi card mới.
       return <CatAstronautLoader label={t('loadingCostSheet')} />;
     }
     if (detailQuery.isError) {
@@ -269,15 +273,12 @@ const PoSummaryPage = () => {
     }
     return (
       <SummaryView
-        key={`${detail.code}-${detail.season}-${appliedSizeGroup}`}
         detail={detail}
         sizeGroup={appliedSizeGroup}
         openGroups={openGroups}
         onToggleGroup={handleToggleGroup}
         onToggleAllGroups={handleToggleAllGroups}
         onPhotoAction={() => openUpload('single')}
-        loading={detailQuery.isPlaceholderData}
-        loadingLabel={t('loadingCostSheet')}
       />
     );
   };

@@ -4,6 +4,8 @@
  * Luồng:
  * - SO hợp lệ của style -> mã F, season, size group.
  * - MRP/MRP3 -> pur_plan -> pur_order2: tiền mua NPL theo từng mã F.
+ * - Size group: ưu tiên khớp đúng tên khách; không có mới dùng LIKE.
+ *   Dòng không khớp trọn một nhóm size -> COMMON-999.
  * - Nếu mã F chính thiếu tiền, mượn đơn mua của mã F anh em cùng style và
  *   chia theo tỷ lệ sản lượng (@share).
  * - BOM 6 cấp + số lượng SO để phân bổ tiền về size group.
@@ -42,7 +44,7 @@ DECLARE
     @share float = 1;
 
 DROP TABLE IF EXISTS
-    #so, #sg_sz, #grp_n, #sz_best, #so_sz, #line_n,
+    #so, #sg_sz, #grp_n, #so_sz, #line_n,
     #line_grp, #q0, #q, #fg, #sib, #sibp, #sibmat, #so_k, #fg_list,
     #mrp_so, #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rate, #po, #pos,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl, #use, #alloc_detail, #alloc, #detail;
@@ -201,7 +203,17 @@ CROSS APPLY (VALUES
     (g.size13), (g.size14), (g.size15), (g.size16)
 ) v(sz)
 WHERE RTRIM(g.cust_name) <> 'COMMON'
-  AND @cust_name LIKE '%' + RTRIM(g.cust_name) + '%'
+  AND (
+      RTRIM(g.cust_name) = RTRIM(@cust_name)
+      OR (
+          NOT EXISTS (
+              SELECT 1
+              FROM size_grp_gi x WITH (NOLOCK)
+              WHERE RTRIM(x.cust_name) = RTRIM(@cust_name)
+          )
+          AND @cust_name LIKE '%' + RTRIM(g.cust_name) + '%'
+      )
+  )
   AND NOT (@is_haddad = 1 AND g.size_grp = 'HADDAD-12')
   AND v.sz IS NOT NULL
   AND LTRIM(RTRIM(v.sz)) <> '';
@@ -214,23 +226,6 @@ FROM #sg_sz
 GROUP BY size_grp;
 
 CREATE UNIQUE CLUSTERED INDEX IX_grp_n ON #grp_n(size_grp);
-
-SELECT sz, size_grp
-INTO #sz_best
-FROM (
-    SELECT
-        gs.sz,
-        gs.size_grp,
-        ROW_NUMBER() OVER (
-            PARTITION BY gs.sz
-            ORDER BY gn.n_def, gs.size_grp
-        ) AS rn
-    FROM #sg_sz gs
-    JOIN #grp_n gn ON gn.size_grp = gs.size_grp
-) x
-WHERE rn = 1;
-
-CREATE CLUSTERED INDEX IX_sz_best ON #sz_best(sz);
 
 SELECT
     s.so_no,
@@ -299,15 +294,14 @@ SELECT
     z.so_id,
     z.f_goods,
     z.idx,
-    COALESCE(lg.size_grp, sb.size_grp, 'COMMON-999') AS size_grp,
+    COALESCE(lg.size_grp, 'COMMON-999') AS size_grp,
     z.qty
 INTO #q0
 FROM #so_sz z
 LEFT JOIN #line_grp lg
     ON lg.so_no = z.so_no
     AND lg.so_id = z.so_id
-    AND lg.f_goods = z.f_goods
-LEFT JOIN #sz_best sb ON sb.sz = z.sz;
+    AND lg.f_goods = z.f_goods;
 
 INSERT INTO #q0 (so_no, so_id, f_goods, idx, size_grp, qty)
 SELECT s.so_no, s.so_id, s.f_goods, 0, 'COMMON-999', s.sheet_qty
@@ -774,35 +768,42 @@ OPTION (MAXRECURSION 10);
 
 CREATE CLUSTERED INDEX IX_use ON #use(f_goods, mat_no, idx);
 
-/* 10. PHÂN BỔ USD VỀ SIZE GROUP */
-;WITH need AS (
+/* 10. PHÂN BỔ USD VỀ SIZE GROUP (GỘP THEO MÃ F + NGUỒN TIỀN) */
+;WITH qp AS (
+    SELECT f_goods, idx, size_grp, SUM(qty) AS qty
+    FROM #q0
+    GROUP BY f_goods, idx, size_grp
+),
+mm AS (
+    SELECT f_goods, mat_no, mat_cat, src, SUM(usd) AS usd
+    FROM #money
+    GROUP BY f_goods, mat_no, mat_cat, src
+),
+need AS (
     SELECT
-        m.so_no,
-        m.so_id,
         m.f_goods,
         m.mat_no,
         m.mat_cat,
-        m.usd,
         m.src,
+        m.usd,
         q.size_grp,
         SUM(q.qty * ISNULL(u.usage, 0)) AS need,
         SUM(q.qty) AS qty
-    FROM #money m
-    JOIN #q0 q
+    FROM mm m
+    JOIN qp q
         ON q.f_goods = m.f_goods
-        AND (m.so_no = '' OR (q.so_no = m.so_no AND q.so_id = m.so_id))
     LEFT JOIN #use u
         ON u.f_goods = m.f_goods
         AND u.mat_no = m.mat_no
         AND u.idx = q.idx
     GROUP BY
-        m.so_no, m.so_id, m.f_goods, m.mat_no, m.mat_cat, m.usd, m.src, q.size_grp
+        m.f_goods, m.mat_no, m.mat_cat, m.src, m.usd, q.size_grp
 ),
 allocation_weight AS (
     SELECT
         *,
-        SUM(need) OVER (PARTITION BY so_no, so_id, f_goods, mat_no, src) AS total_need,
-        SUM(qty)  OVER (PARTITION BY so_no, so_id, f_goods, mat_no, src) AS total_qty
+        SUM(need) OVER (PARTITION BY f_goods, mat_no, src) AS total_need,
+        SUM(qty)  OVER (PARTITION BY f_goods, mat_no, src) AS total_qty
     FROM need
 )
 SELECT
@@ -899,7 +900,7 @@ FROM (
 ) a;
 
 DROP TABLE IF EXISTS
-    #so, #sg_sz, #grp_n, #sz_best, #so_sz, #line_n,
+    #so, #sg_sz, #grp_n, #so_sz, #line_n,
     #line_grp, #q0, #q, #fg, #sib, #sibp, #sibmat, #so_k, #fg_list,
     #mrp_so, #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rate, #po, #pos,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl, #use, #alloc_detail, #alloc, #detail;

@@ -1,15 +1,17 @@
 /**
- * Vật liệu PO2B (giá trị nhập kho thực tế + đơn mua trực tiếp).
+ * Vật liệu PO2B theo giá trị nhập kho thực tế.
  *
  * Luồng:
  * - SO hợp lệ -> mã F, season, size group.
- * - MRP/MRP3 -> pur_plan -> pur_order2 -> phiếu nhập kho (pur_notice/pur_in).
- * - Bổ sung các phiếu nhập mua trực tiếp cho SO (không đi qua plan).
- * - Nếu mã F chính thiếu tiền, mượn tiền của mã F anh em cùng style, chia theo @share.
- * - BOM 6 cấp + số lượng SO để phân bổ về size group.
+ * - Size group: ưu tiên khớp đúng tên khách; không có thì mới dùng LIKE.
+ *   Dòng không khớp trọn một nhóm size -> COMMON-999.
+ * - MRP3/MRP2 -> pur_plan -> pur_order2 -> phiếu nhập kho (pur_notice/pur_in).
+ * - Tiền nhập kho gộp theo mã F + mã vật liệu, sau đó phân bổ về size group.
+ * - BOM 6 cấp + số lượng SO để tính tỷ lệ phân bổ.
  *
- * Kết quả giữ đúng shape cũ để UI đọc:
+ * Kết quả giữ shape cũ để UI đọc:
  * qty, m1, m2, m3, opa, m_ttl (USD/pcs), material_details (JSON).
+ * opa = toàn bộ vật liệu không thuộc M1/M2/M3; m_ttl = toàn bộ vật liệu.
  *
  * Tham số: p_style, p_season, p_size_grp.
  */
@@ -34,18 +36,14 @@ DECLARE
     @qty_g numeric(18,4),
     @lvl int = 0,
     @fc_mode int = 2,
-    @fc_mode_override int = NULL,
-    @q_tgt float,
-    @q_sib float,
-    @share float = 1,
-    @src_txt varchar(50);
+    @fc_mode_override int = NULL;
 
 DROP TABLE IF EXISTS
-    #so, #sg_sz, #grp_n, #sz_best, #so_sz, #line_n,
-    #line_grp, #q0, #q, #fg, #sib, #sibp, #so_k, #fg_list,
+    #so, #sg_sz, #grp_n, #so_sz, #line_n,
+    #line_grp, #q0, #q, #fg, #so_k, #fg_list,
     #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rc,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl,
-    #use, #need, #alloc_detail, #alloc, #detail, #rcs, #out, #mwn, #rcp, #px, #pxl;
+    #use, #alloc_detail, #alloc, #detail;
 
 SET @fc_mode = ISNULL(@fc_mode_override, 2);
 SET @is_common = CASE WHEN @size_grp = 'COMMON-999' THEN 1 ELSE 0 END;
@@ -157,37 +155,6 @@ CREATE UNIQUE CLUSTERED INDEX IX_so_k ON #so_k(so_no, so_id, f_goods);
 SELECT DISTINCT f_goods INTO #fg_list FROM #so;
 CREATE UNIQUE CLUSTERED INDEX IX_fg_list ON #fg_list(f_goods);
 
-/* 1c. Mã F anh em cùng 8 ký tự đầu + cùng season. */
-SELECT g.goods_no AS f_sib
-INTO #sib
-FROM bas_goods g WITH (NOLOCK)
-WHERE g.bar_no LIKE LEFT(@style, 6) + '%'
-  AND REPLACE(g.bar_no, ' ', '') LIKE LEFT(@style, 8) + '%'
-  AND g.goods_no LIKE 'F%'
-  AND LEN(g.goods_no) > 10
-  AND LTRIM(RTRIM(ISNULL(g.goods_model, ''))) = @s
-  AND g.goods_no NOT IN (SELECT f_goods FROM #fg);
-
-CREATE UNIQUE CLUSTERED INDEX IX_sib ON #sib(f_sib);
-
-SELECT @q_tgt = SUM(sheet_qty) FROM #so;
-
-SELECT @q_sib = SUM(s.sheet_qty)
-FROM #sib b
-JOIN sal_order2 s WITH (NOLOCK)
-    ON s.goods_no = b.f_sib
-JOIN sal_order1 s1 WITH (NOLOCK)
-    ON s1.sheet_no = s.sheet_no
-WHERE s1.sheet_type IN ('SOGI', 'SOCGI')
-  AND s1.sheet_sta = '1'
-  AND s.sheet_sta = '1'
-  AND (s.close_type IS NULL OR LEFT(s.close_type, 1) <> '1')
-  AND ISNULL(s1.cust_no1, '') <> '10003'
-  AND ISNULL(s1.cust_ord_no, '') NOT IN ('GISTOCK', N'GI库存')
-  AND LEFT(s1.sheet_no, 3) <> 'SOD';
-
-SET @share = ISNULL(@q_tgt / NULLIF(@q_tgt + @q_sib, 0), 1);
-
 /* 2. MAP SIZE GROUP */
 SELECT
     g.size_grp,
@@ -201,7 +168,17 @@ CROSS APPLY (VALUES
     (g.size13), (g.size14), (g.size15), (g.size16)
 ) v(sz)
 WHERE RTRIM(g.cust_name) <> 'COMMON'
-  AND @cust_name LIKE '%' + RTRIM(g.cust_name) + '%'
+  AND (
+      RTRIM(g.cust_name) = RTRIM(@cust_name)
+      OR (
+          NOT EXISTS (
+              SELECT 1
+              FROM size_grp_gi x WITH (NOLOCK)
+              WHERE RTRIM(x.cust_name) = RTRIM(@cust_name)
+          )
+          AND @cust_name LIKE '%' + RTRIM(g.cust_name) + '%'
+      )
+  )
   AND NOT (@is_haddad = 1 AND g.size_grp = 'HADDAD-12')
   AND v.sz IS NOT NULL
   AND LTRIM(RTRIM(v.sz)) <> '';
@@ -214,23 +191,6 @@ FROM #sg_sz
 GROUP BY size_grp;
 
 CREATE UNIQUE CLUSTERED INDEX IX_grp_n ON #grp_n(size_grp);
-
-SELECT sz, size_grp
-INTO #sz_best
-FROM (
-    SELECT
-        gs.sz,
-        gs.size_grp,
-        ROW_NUMBER() OVER (
-            PARTITION BY gs.sz
-            ORDER BY gn.n_def, gs.size_grp
-        ) AS rn
-    FROM #sg_sz gs
-    JOIN #grp_n gn ON gn.size_grp = gs.size_grp
-) x
-WHERE rn = 1;
-
-CREATE CLUSTERED INDEX IX_sz_best ON #sz_best(sz);
 
 SELECT
     s.so_no,
@@ -299,15 +259,14 @@ SELECT
     z.so_id,
     z.f_goods,
     z.idx,
-    COALESCE(lg.size_grp, sb.size_grp, 'COMMON-999') AS size_grp,
+    COALESCE(lg.size_grp, 'COMMON-999') AS size_grp,
     z.qty
 INTO #q0
 FROM #so_sz z
 LEFT JOIN #line_grp lg
     ON lg.so_no = z.so_no
     AND lg.so_id = z.so_id
-    AND lg.f_goods = z.f_goods
-LEFT JOIN #sz_best sb ON sb.sz = z.sz;
+    AND lg.f_goods = z.f_goods;
 
 INSERT INTO #q0 (so_no, so_id, f_goods, idx, size_grp, qty)
 SELECT s.so_no, s.so_id, s.f_goods, 0, 'COMMON-999', s.sheet_qty
@@ -578,177 +537,31 @@ GROUP BY o.plan_no, o.plan_id;
 
 CREATE UNIQUE CLUSTERED INDEX IX_rc ON #rc(plan_no, plan_id);
 
-/* 7. CHI PHÍ THEO SO + MÃ VẬT LIỆU (P + C) */
+/* 7. CHI PHÍ THEO MÃ F + MÃ VẬT LIỆU (P + C), GỘP TOÀN STYLE */
 SELECT
-    w.so_no,
-    w.so_id,
+    '' AS so_no,
+    0 AS so_id,
     w.f_goods,
     w.mat_no,
-    CASE WHEN LEFT(w.mat_no, 1) = 'M' THEN LEFT(w.mat_no, 2) ELSE LEFT(w.mat_no, 1) END AS mat_cat,
-    SUM(rc.usd * w.w) AS usd,
-    CAST(CASE WHEN w.so_no = '' THEN 'C' ELSE 'P' END AS char(1)) AS src
+    CASE
+        WHEN LEFT(w.mat_no, 1) = 'M' THEN LEFT(w.mat_no, 2)
+        ELSE LEFT(w.mat_no, 1)
+    END AS mat_cat,
+    SUM(rc.usd * w.w) AS usd
 INTO #money
 FROM #mwp w
 JOIN #rc rc
     ON rc.plan_no = w.plan_no
     AND rc.plan_id = w.plan_id
 GROUP BY
-    w.so_no, w.so_id, w.f_goods, w.mat_no,
-    CASE WHEN LEFT(w.mat_no, 1) = 'M' THEN LEFT(w.mat_no, 2) ELSE LEFT(w.mat_no, 1) END,
-    CASE WHEN w.so_no = '' THEN 'C' ELSE 'P' END;
+    w.f_goods,
+    w.mat_no,
+    CASE
+        WHEN LEFT(w.mat_no, 1) = 'M' THEN LEFT(w.mat_no, 2)
+        ELSE LEFT(w.mat_no, 1)
+    END;
 
-CREATE CLUSTERED INDEX IX_money ON #money(so_no, so_id, f_goods, mat_no);
-
-/* 7b. NHÁNH D: phiếu nhập mua trực tiếp cho SO, không đi qua plan. */
-INSERT INTO #money (so_no, so_id, f_goods, mat_no, mat_cat, usd, src)
-SELECT
-    k.so_no, k.so_id, k.f_goods, i.goods_no,
-    CASE WHEN LEFT(i.goods_no, 1) = 'M' THEN LEFT(i.goods_no, 2) ELSE LEFT(i.goods_no, 1) END,
-    SUM(
-        i.add_flag *
-        CASE
-            WHEN i.cur_no = 'USD' THEN i.sheet_pri * i.sheet_qty * i.pri_dis
-            WHEN i.cur_no = 'VND' THEN (i.sheet_pri * i.sheet_qty * i.pri_dis) / NULLIF(u.cur_rate, 0)
-            WHEN i.cur_no = 'RMB' THEN (i.sheet_pri * i.sheet_qty * i.pri_dis)
-                / NULLIF(u.cur_rate / NULLIF(r.cur_rate, 0), 0)
-            WHEN i.cur_no = 'HKD' THEN (i.sheet_pri * i.sheet_qty * i.pri_dis)
-                / NULLIF(u.cur_rate / NULLIF(h.cur_rate, 0), 0)
-            ELSE 0
-        END
-    ),
-    'D'
-FROM #so_k k
-JOIN pur_in2 i WITH (NOLOCK)
-    ON i.ord_no = k.so_no
-    AND i.ord_id = k.so_id
-    AND i.sheet_sta = '1'
-JOIN pur_in1 i1 WITH (NOLOCK)
-    ON i1.sheet_no = i.sheet_no
-    AND i1.sheet_sta = '1'
-    AND i1.sheet_type IN ('PIGI', 'PTGI', 'PTGIA')
-LEFT JOIN bas_cur_acc u WITH (NOLOCK)
-    ON u.cur_code = 'USD'
-    AND u.acc_period = i1.acc_period
-LEFT JOIN bas_cur_acc r WITH (NOLOCK)
-    ON r.cur_code = 'RMB'
-    AND r.acc_period = i1.acc_period
-LEFT JOIN bas_cur_acc h WITH (NOLOCK)
-    ON h.cur_code = 'HKD'
-    AND h.acc_period = i1.acc_period
-WHERE (i.plan_no IS NULL OR i.plan_no = '')
-  AND NOT EXISTS (
-      SELECT 1
-      FROM pur_notice2 n WITH (NOLOCK)
-      JOIN pur_order2 o WITH (NOLOCK)
-          ON o.sheet_no = n.pur_no
-          AND o.sheet_id = n.pur_id
-      JOIN #pln pl
-          ON pl.plan_no = o.plan_no
-          AND pl.plan_id = o.plan_id
-      WHERE n.sheet_no = i.notice_no
-        AND n.sheet_id = i.notice_id
-  )
-GROUP BY
-    k.so_no, k.so_id, k.f_goods, i.goods_no,
-    CASE WHEN LEFT(i.goods_no, 1) = 'M' THEN LEFT(i.goods_no, 2) ELSE LEFT(i.goods_no, 1) END;
-
-/* 7c. NHÁNH S: mã F chính thiếu tiền -> mượn tiền mã F anh em. */
-SELECT DISTINCT
-    t.f_goods,
-    t.mat_no,
-    t.mat_cat,
-    p.sheet_no AS plan_no,
-    p.sheet_id AS plan_id
-INTO #sibp
-FROM (
-    SELECT DISTINCT
-        r.goods_no0 AS f_goods,
-        r.goods_no AS mat_no,
-        CASE LEFT(r.goods_no, 1)
-            WHEN 'M' THEN LEFT(r.goods_no, 2)
-            ELSE LEFT(r.goods_no, 1)
-        END AS mat_cat
-    FROM #fg f
-    JOIN mrp_mrp2 r WITH (NOLOCK)
-        ON r.goods_no0 = f.f_goods
-    WHERE LEFT(r.goods_no, 2) IN ('M1', 'M2', 'M3')
-       OR LEFT(r.goods_no, 1) = 'B'
-) t
-JOIN mrp_mrp2 r2 WITH (NOLOCK)
-    ON r2.goods_no = t.mat_no
-    AND r2.need_plan_qty > 0
-JOIN #sib sb ON sb.f_sib = r2.goods_no0
-JOIN pur_plan2 p WITH (NOLOCK)
-    ON p.mrp_no = r2.sheet_no
-    AND p.mrp_id = r2.sheet_id
-WHERE NOT EXISTS (
-    SELECT 1 FROM #money m
-    WHERE m.f_goods = t.f_goods
-      AND m.mat_no = t.mat_no
-      AND ISNULL(m.usd, 0) <> 0
-);
-
-CREATE CLUSTERED INDEX IX_sibp ON #sibp(plan_no, plan_id);
-
-SELECT
-    o.plan_no,
-    o.plan_id,
-    SUM(
-        i.add_flag *
-        CASE
-            WHEN i.cur_no = 'USD' THEN i.sheet_pri * i.sheet_qty * i.pri_dis
-            WHEN i.cur_no = 'VND' THEN (i.sheet_pri * i.sheet_qty * i.pri_dis) / NULLIF(u.cur_rate, 0)
-            WHEN i.cur_no = 'RMB' THEN (i.sheet_pri * i.sheet_qty * i.pri_dis)
-                / NULLIF(u.cur_rate / NULLIF(r.cur_rate, 0), 0)
-            WHEN i.cur_no = 'HKD' THEN (i.sheet_pri * i.sheet_qty * i.pri_dis)
-                / NULLIF(u.cur_rate / NULLIF(h.cur_rate, 0), 0)
-            ELSE 0
-        END
-    ) AS usd
-INTO #rcs
-FROM (SELECT DISTINCT plan_no, plan_id FROM #sibp) k
-JOIN pur_order2 o WITH (NOLOCK)
-    ON o.plan_no = k.plan_no
-    AND o.plan_id = k.plan_id
-JOIN pur_notice2 n WITH (NOLOCK)
-    ON n.pur_no = o.sheet_no
-    AND n.pur_id = o.sheet_id
-    AND n.sheet_sta = '1'
-JOIN pur_notice1 n1 WITH (NOLOCK)
-    ON n1.sheet_no = n.sheet_no
-    AND n1.sheet_sta = '1'
-    AND n1.sheet_type = 'PZGI'
-JOIN pur_in2 i WITH (NOLOCK)
-    ON i.notice_no = n.sheet_no
-    AND i.notice_id = n.sheet_id
-    AND i.sheet_sta = '1'
-JOIN pur_in1 i1 WITH (NOLOCK)
-    ON i1.sheet_no = i.sheet_no
-    AND i1.sheet_sta = '1'
-    AND i1.sheet_type IN ('PIGI', 'PTGI', 'PTGIA')
-LEFT JOIN bas_cur_acc u WITH (NOLOCK)
-    ON u.cur_code = 'USD'
-    AND u.acc_period = i1.acc_period
-LEFT JOIN bas_cur_acc r WITH (NOLOCK)
-    ON r.cur_code = 'RMB'
-    AND r.acc_period = i1.acc_period
-LEFT JOIN bas_cur_acc h WITH (NOLOCK)
-    ON h.cur_code = 'HKD'
-    AND h.acc_period = i1.acc_period
-GROUP BY o.plan_no, o.plan_id;
-
-CREATE UNIQUE CLUSTERED INDEX IX_rcs ON #rcs(plan_no, plan_id);
-
-INSERT INTO #money (so_no, so_id, f_goods, mat_no, mat_cat, usd, src)
-SELECT
-    '', 0, b.f_goods, b.mat_no, b.mat_cat,
-    SUM(rs.usd) * @share,
-    'S'
-FROM #sibp b
-JOIN #rcs rs
-    ON rs.plan_no = b.plan_no
-    AND rs.plan_id = b.plan_id
-GROUP BY b.f_goods, b.mat_no, b.mat_cat;
+CREATE CLUSTERED INDEX IX_money ON #money(f_goods, mat_no);
 
 /* 8. TRUY BOM TỐI ĐA 6 CẤP */
 CREATE TABLE #bq_todo (parent_no varchar(30) PRIMARY KEY);
@@ -853,54 +666,65 @@ OPTION (MAXRECURSION 10);
 
 CREATE CLUSTERED INDEX IX_use ON #use(f_goods, mat_no, idx);
 
-/* 10. PHÂN BỔ USD VỀ SIZE GROUP */
-;WITH need AS (
+/* 10. PHÂN BỔ USD VỀ SIZE GROUP (GỘP THEO MÃ F) */
+;WITH qp AS (
+    SELECT f_goods, idx, size_grp, SUM(qty) AS qty
+    FROM #q0
+    GROUP BY f_goods, idx, size_grp
+),
+mm AS (
+    SELECT f_goods, mat_no, mat_cat, SUM(usd) AS usd
+    FROM #money
+    GROUP BY f_goods, mat_no, mat_cat
+),
+need AS (
     SELECT
-        m.so_no, m.so_id, m.f_goods, m.mat_no, m.mat_cat, m.usd, m.src,
+        m.f_goods,
+        m.mat_no,
+        m.mat_cat,
+        m.usd,
         q.size_grp,
         SUM(q.qty * ISNULL(u.usage, 0)) AS need,
         SUM(q.qty) AS qty
-    FROM #money m
-    JOIN #q0 q
+    FROM mm m
+    JOIN qp q
         ON q.f_goods = m.f_goods
-        AND (m.so_no = '' OR (q.so_no = m.so_no AND q.so_id = m.so_id))
     LEFT JOIN #use u
         ON u.f_goods = m.f_goods
         AND u.mat_no = m.mat_no
         AND u.idx = q.idx
     GROUP BY
-        m.so_no, m.so_id, m.f_goods, m.mat_no, m.mat_cat, m.usd, m.src, q.size_grp
+        m.f_goods, m.mat_no, m.mat_cat, m.usd, q.size_grp
 ),
 allocation_weight AS (
     SELECT
         *,
-        SUM(need) OVER (PARTITION BY so_no, so_id, f_goods, mat_no, src) AS total_need,
-        SUM(qty)  OVER (PARTITION BY so_no, so_id, f_goods, mat_no, src) AS total_qty
+        SUM(need) OVER (PARTITION BY f_goods, mat_no) AS total_need,
+        SUM(qty)  OVER (PARTITION BY f_goods, mat_no) AS total_qty
     FROM need
 )
 SELECT
     size_grp,
     mat_no,
     mat_cat,
-    src,
     SUM(usd * CASE
         WHEN total_need > 0 THEN need / NULLIF(total_need, 0)
         ELSE qty / NULLIF(total_qty, 0)
     END) AS usd
 INTO #alloc_detail
 FROM allocation_weight
-GROUP BY size_grp, mat_no, mat_cat, src;
+GROUP BY size_grp, mat_no, mat_cat;
 
 CREATE CLUSTERED INDEX IX_alloc_detail ON #alloc_detail(size_grp, mat_no, mat_cat);
 
-SELECT size_grp, mat_cat, src, SUM(usd) AS usd
+SELECT size_grp, mat_cat, SUM(usd) AS usd
 INTO #alloc
 FROM #alloc_detail
-GROUP BY size_grp, mat_cat, src;
+GROUP BY size_grp, mat_cat;
 
-CREATE CLUSTERED INDEX IX_alloc ON #alloc(size_grp, mat_cat, src);
+CREATE CLUSTERED INDEX IX_alloc ON #alloc(size_grp, mat_cat);
 
-/* 11. GOM DETAIL THEO ĐÚNG PHẠM VI ĐANG XEM */
+/* 11. GOM DETAIL THEO PHẠM VI ĐANG XEM */
 CREATE TABLE #detail (
     mat_no varchar(30),
     mat_cat varchar(2),
@@ -925,27 +749,25 @@ END;
 
 CREATE CLUSTERED INDEX IX_detail ON #detail(mat_cat, mat_no);
 
-/* 12. KẾT QUẢ USD/CÁI */
+/* 12. KẾT QUẢ USD/pcs */
 SELECT
     'PO2B' AS po_type,
     @style AS cust_style,
     @s AS season,
     @g AS size_grp,
     @qty_g AS qty,
-    @share AS sib_share,
-    SUM(CASE WHEN mat_cat = 'M1' THEN usd END) / NULLIF(@qty_g, 0) AS m1,
-    SUM(CASE WHEN mat_cat = 'M2' THEN usd END) / NULLIF(@qty_g, 0) AS m2,
-    SUM(CASE WHEN mat_cat = 'M3' THEN usd END) / NULLIF(@qty_g, 0) AS m3,
-    SUM(CASE WHEN mat_cat = 'B'  THEN usd END) / NULLIF(@qty_g, 0) AS opa,
-    SUM(CASE WHEN mat_cat IN ('M1', 'M2', 'M3', 'B') THEN usd END)
-        / NULLIF(@qty_g, 0) AS m_ttl,
+    a.m1 / NULLIF(@qty_g, 0) AS m1,
+    a.m2 / NULLIF(@qty_g, 0) AS m2,
+    a.m3 / NULLIF(@qty_g, 0) AS m3,
+    a.opa / NULLIF(@qty_g, 0) AS opa,
+    a.m_ttl / NULLIF(@qty_g, 0) AS m_ttl,
     (
         SELECT
             CASE d.mat_cat
                 WHEN 'M1' THEN 'fabric'
                 WHEN 'M2' THEN 'trim'
                 WHEN 'M3' THEN 'pack'
-                WHEN 'B'  THEN 'opa'
+                ELSE 'opa'
             END AS category,
             d.mat_no AS code,
             ISNULL(g.goods_name, '') AS name,
@@ -953,15 +775,22 @@ SELECT
         FROM #detail d
         LEFT JOIN bas_goods g WITH (NOLOCK) ON g.goods_no = d.mat_no
         WHERE d.usd <> 0
-          AND d.mat_cat IN ('M1', 'M2', 'M3', 'B')
         FOR JSON PATH
     ) AS material_details
-FROM #detail;
+FROM (
+    SELECT
+        SUM(CASE WHEN mat_cat = 'M1' THEN usd ELSE 0 END) AS m1,
+        SUM(CASE WHEN mat_cat = 'M2' THEN usd ELSE 0 END) AS m2,
+        SUM(CASE WHEN mat_cat = 'M3' THEN usd ELSE 0 END) AS m3,
+        SUM(CASE WHEN mat_cat NOT IN ('M1', 'M2', 'M3') THEN usd ELSE 0 END) AS opa,
+        SUM(usd) AS m_ttl
+    FROM #alloc
+    WHERE @is_common = 1 OR size_grp = @g
+) a;
 
 DROP TABLE IF EXISTS
-    #so, #sg_sz, #grp_n, #sz_best, #so_sz, #line_n,
-    #line_grp, #q0, #q, #fg, #sib, #sibp, #so_k, #fg_list,
+    #so, #sg_sz, #grp_n, #so_sz, #line_n,
+    #line_grp, #q0, #q, #fg, #so_k, #fg_list,
     #mrp_sh, #den, #mw, #mww, #mwp, #pln, #rc,
     #money, #bq_todo, #bq_done, #bq_sheet, #bl,
-    #use, #alloc_detail, #alloc, #detail, #rcs, #out, #mwn, #rcp, #px, #pxl;
-`;
+    #use, #alloc_detail, #alloc, #detail;`;

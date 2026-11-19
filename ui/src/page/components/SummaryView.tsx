@@ -41,7 +41,10 @@ const SummaryView = ({
       <div className="po-grid">
         {detail.pos.map((po, index) => (
           <PoColumn
-            key={po.poNo}
+            // Giữ cố định theo vị trí cột (PO1, PO2A, PO2B, PO3).
+            // Nếu dùng poNo làm key, khi Size group đổi mã PO1 thì card sẽ
+            // bị coi là mới và chạy lại hiệu ứng hiện dần.
+            key={index}
             po={po}
             index={index}
             openGroups={openGroups}
