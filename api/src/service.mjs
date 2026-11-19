@@ -547,6 +547,9 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam, soSeasonParam)
     // x và emb_pri lấy số gốc chưa làm tròn, đúng như SQL cũ.
     const x = cut + soc + sew + fin + pack + etc;
     const overheadCost = round2(x * 0.61 * 1.6);
+    // SQL gốc lấy x * 1.6, tức là cộng thêm 60% trên nhóm công đoạn x.
+    // UI hiển thị x dạng gốc nên phải có thêm dòng này để cộng khớp l_ttl.
+    const laborLoading = round2(x * 0.6);
 
     const lttl = Number(labor.l_ttl);
     const lttlRounded = Number.isFinite(lttl) && lttl !== 0
@@ -581,6 +584,12 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam, soSeasonParam)
         { opCode: 'soc', opName: 'Socks', minutes: 0, cost: socCost },
         { opCode: 'pack', opName: 'Packing', minutes: 0, cost: packCost },
         { opCode: 'etc', opName: 'ETC', minutes: 0, cost: etcCost },
+        {
+          opCode: 'burden',
+          opName: 'Labor loading 60%',
+          minutes: 0,
+          cost: laborLoading,
+        },
         {
           opCode: 'overhead',
           opName: 'Overhead',

@@ -198,7 +198,7 @@ SELECT
     w.*,
     ROW_NUMBER() OVER (
         PARTITION BY w.c_style, w.wo_type1
-        ORDER BY w.wo_date DESC, w.wo DESC
+        ORDER BY w.wo_date DESC
     ) AS last_wo_seq
 INTO #wo_last
 FROM #wo w;
@@ -221,7 +221,7 @@ BEGIN
             w.*,
             ROW_NUMBER() OVER (
                 PARTITION BY LEFT(w.cust_style,8), w.f_goods, w.sf_goods
-                ORDER BY w.wo_date ASC, w.wo ASC
+                ORDER BY w.wo_date ASC
             ) AS style_seq
         FROM #wo_last w
         WHERE w.last_wo_seq = 1
@@ -578,7 +578,7 @@ SELECT
     p.*,
     ROW_NUMBER() OVER (
         PARTITION BY p.c_style, p.raw_process
-        ORDER BY p.pcs_vnd DESC, p.wo DESC
+        ORDER BY p.pcs_vnd DESC
     ) AS process_seq
 INTO #ranked
 FROM #wo_process p;

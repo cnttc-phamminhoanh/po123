@@ -7,9 +7,11 @@
  * - Nếu mã F chính thiếu tiền, mượn đơn mua của mã F anh em cùng style và
  *   chia theo tỷ lệ sản lượng (@share).
  * - BOM 6 cấp + số lượng SO để phân bổ tiền về size group.
+ * - Phân bổ tách theo nguồn tiền P (có SO) / C (forecast) / S (mượn mã F anh em).
  *
  * Kết quả vẫn giữ đúng shape cũ để UI đọc:
  * m1, m2, m3, opa, m_ttl (USD/pcs), material_details (JSON).
+ * Bổ sung sib_share và src (NO_PO / ACTUAL / ACTUAL+SIBLING) để biết nguồn tiền.
  *
  * Tham số: p_style, p_season, p_size_grp.
  */
@@ -807,22 +809,23 @@ SELECT
     size_grp,
     mat_no,
     mat_cat,
+    src,
     SUM(usd * CASE
         WHEN total_need > 0 THEN need / NULLIF(total_need, 0)
         ELSE qty / NULLIF(total_qty, 0)
     END) AS usd
 INTO #alloc_detail
 FROM allocation_weight
-GROUP BY size_grp, mat_no, mat_cat;
+GROUP BY size_grp, mat_no, mat_cat, src;
 
 CREATE CLUSTERED INDEX IX_alloc_detail ON #alloc_detail(size_grp, mat_no, mat_cat);
 
-SELECT size_grp, mat_cat, SUM(usd) AS usd
+SELECT size_grp, mat_cat, src, SUM(usd) AS usd
 INTO #alloc
 FROM #alloc_detail
-GROUP BY size_grp, mat_cat;
+GROUP BY size_grp, mat_cat, src;
 
-CREATE CLUSTERED INDEX IX_alloc ON #alloc(size_grp, mat_cat);
+CREATE CLUSTERED INDEX IX_alloc ON #alloc(size_grp, mat_cat, src);
 
 /* 11. GOM DETAIL THEO ĐÚNG PHẠM VI ĐANG XEM */
 CREATE TABLE #detail (
@@ -856,12 +859,17 @@ SELECT
     @s AS season,
     @g AS size_grp,
     @qty_g AS qty,
-    SUM(CASE WHEN mat_cat = 'M1' THEN usd END) / NULLIF(@qty_g, 0) AS m1,
-    SUM(CASE WHEN mat_cat = 'M2' THEN usd END) / NULLIF(@qty_g, 0) AS m2,
-    SUM(CASE WHEN mat_cat = 'M3' THEN usd END) / NULLIF(@qty_g, 0) AS m3,
-    SUM(CASE WHEN mat_cat = 'B'  THEN usd END) / NULLIF(@qty_g, 0) AS opa,
-    SUM(CASE WHEN mat_cat IN ('M1', 'M2', 'M3', 'B') THEN usd END)
-        / NULLIF(@qty_g, 0) AS m_ttl,
+    @share AS sib_share,
+    CASE
+        WHEN NOT EXISTS (SELECT 1 FROM #money) THEN 'NO_PO'
+        WHEN EXISTS (SELECT 1 FROM #money WHERE src = 'S') THEN 'ACTUAL+SIBLING'
+        ELSE 'ACTUAL'
+    END AS src,
+    a.m1 / NULLIF(@qty_g, 0) AS m1,
+    a.m2 / NULLIF(@qty_g, 0) AS m2,
+    a.m3 / NULLIF(@qty_g, 0) AS m3,
+    a.opa / NULLIF(@qty_g, 0) AS opa,
+    a.m_ttl / NULLIF(@qty_g, 0) AS m_ttl,
     (
         SELECT
             CASE d.mat_cat
@@ -879,7 +887,16 @@ SELECT
           AND d.mat_cat IN ('M1', 'M2', 'M3', 'B')
         FOR JSON PATH
     ) AS material_details
-FROM #detail;
+FROM (
+    SELECT
+        SUM(CASE WHEN mat_cat = 'M1' THEN usd END) AS m1,
+        SUM(CASE WHEN mat_cat = 'M2' THEN usd END) AS m2,
+        SUM(CASE WHEN mat_cat = 'M3' THEN usd END) AS m3,
+        SUM(CASE WHEN mat_cat = 'B'  THEN usd END) AS opa,
+        SUM(CASE WHEN mat_cat IN ('M1', 'M2', 'M3', 'B') THEN usd END) AS m_ttl
+    FROM #alloc
+    WHERE @is_common = 1 OR size_grp = @g
+) a;
 
 DROP TABLE IF EXISTS
     #so, #sg_sz, #grp_n, #sz_best, #so_sz, #line_n,

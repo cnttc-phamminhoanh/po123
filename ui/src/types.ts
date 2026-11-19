@@ -26,6 +26,7 @@ export const LABOR_OP_CODES = [
   'soc',
   'pack',
   'etc',
+  'burden',
   'overhead',
 ] as const;
 export type LaborOpCode = (typeof LABOR_OP_CODES)[number];
@@ -40,6 +41,7 @@ export const LABOR_OP_LABELS: Record<LaborOpCode, string> = {
   soc: 'Socks',
   pack: 'Packing',
   etc: 'ETC',
+  burden: 'Labor loading 60%',
   overhead: 'Overhead',
 };
 

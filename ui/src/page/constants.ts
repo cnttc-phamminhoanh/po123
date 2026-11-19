@@ -69,6 +69,7 @@ export const LABOR_SERIES: SeriesMeta<LaborOpCode>[] = [
   { key: 'soc', labelKey: 'seriesSoc', color: '#7C6FA3' },
   { key: 'pack', labelKey: 'seriesPacking', color: '#7D8C55' },
   { key: 'etc', labelKey: 'seriesEtc', color: '#6F7377' },
+  { key: 'burden', labelKey: 'seriesLaborLoading', color: '#8A6A2F' },
   { key: 'overhead', labelKey: 'seriesLaborOverhead', color: '#B5964A' },
 ];
 

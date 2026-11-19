@@ -261,12 +261,11 @@ const PoColumn = ({
   }, [index, openGroups]);
 
   const laborItems: MiniChartItem[] = LABOR_SERIES
-    .filter(
-      (series) =>
-        series.key !== 'overhead' ||
-        index === 3 ||
-        laborOpCost(po, 'overhead') > 0,
-    )
+    .filter((series) => {
+      if (series.key === 'burden') return laborOpCost(po, 'burden') > 0;
+      if (series.key === 'overhead') return index === 3 || laborOpCost(po, 'overhead') > 0;
+      return true;
+    })
     .map((series) => ({
       label: t(series.labelKey),
       value: laborOpCost(po, series.key),

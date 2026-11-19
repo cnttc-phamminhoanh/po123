@@ -128,10 +128,11 @@ export const buildLaborsOption = (
   pos: PoCostDetail[],
   t: Translate,
 ): EChartsOption => {
-  const series = LABOR_SERIES.filter(
-    (meta) =>
-      meta.key !== 'overhead' ||
-      pos.some((po) => laborOpCost(po, 'overhead') > 0),
-  );
+  const series = LABOR_SERIES.filter((meta) => {
+    if (meta.key === 'burden') {
+      return pos.some((po) => laborOpCost(po, 'burden') > 0);
+    }
+    return meta.key !== 'overhead' || pos.some((po) => laborOpCost(po, 'overhead') > 0);
+  });
   return buildOption(pos, series, laborOpCost, t);
 };

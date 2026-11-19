@@ -536,6 +536,8 @@
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 6px;
   margin-top: 12px;
+  perspective: 1200px;
+  perspective-origin: 50% 0%;
 }
 
 .po { display: flex; flex-direction: column; min-width: 0; }
@@ -551,13 +553,35 @@
   }
 }
 
-.po-grid > .po {
-  animation: summary-card-in 900ms cubic-bezier(0.22, 1, 0.36, 1) both;
+/* Card bung ra từ giữa phía trước rồi trải vào đúng vị trí, giống màn hình iPhone. */
+@keyframes po-card-spread-in {
+  0% {
+    opacity: 0;
+    transform:
+      translate3d(var(--spread-x, 0px), 26px, 90px)
+      scale(0.96)
+      rotateX(-7deg);
+  }
+  35% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1) rotateX(0deg);
+  }
 }
 
-.po-grid > .po:nth-child(2) { animation-delay: 110ms; }
-.po-grid > .po:nth-child(3) { animation-delay: 220ms; }
-.po-grid > .po:nth-child(4) { animation-delay: 330ms; }
+.po-grid > .po {
+  --spread-x: 0px;
+  transform-origin: 50% 0%;
+  animation: po-card-spread-in 950ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+.po-grid > .po:nth-child(1) { --spread-x: 70px; animation-delay: 120ms; }
+.po-grid > .po:nth-child(2) { --spread-x: 24px; animation-delay: 0ms; }
+.po-grid > .po:nth-child(3) { --spread-x: -24px; animation-delay: 55ms; }
+.po-grid > .po:nth-child(4) { --spread-x: -70px; animation-delay: 170ms; }
 
 .po-title,
 .gp-tile,
@@ -1261,6 +1285,8 @@
     minmax(0, 2.98fr);
   grid-auto-rows: minmax(210px, auto);
   gap: 14px;
+  perspective: 1200px;
+  perspective-origin: 50% 0%;
 }
 
 .meta-card {
@@ -1274,12 +1300,16 @@
   flex-direction: column;
   justify-content: center;
   box-shadow: var(--shadow-card);
-  animation: summary-card-in 800ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  --spread-x: 0px;
+  transform-origin: 50% 0%;
+  animation: po-card-spread-in 850ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
 }
 
-.meta-grid > .meta-card:nth-child(2) { animation-delay: 100ms; }
-.meta-grid > .meta-card:nth-child(3) { animation-delay: 200ms; }
-.meta-grid > .meta-card:nth-child(4) { animation-delay: 300ms; }
+.meta-grid > .meta-card:nth-child(1) { --spread-x: 34px; animation-delay: 90ms; }
+.meta-grid > .meta-card:nth-child(2) { --spread-x: 12px; animation-delay: 0ms; }
+.meta-grid > .meta-card:nth-child(3) { --spread-x: -12px; animation-delay: 55ms; }
+.meta-grid > .meta-card:nth-child(4) { --spread-x: -34px; animation-delay: 150ms; }
 
 .meta-card--id {
   background: #073B4C;
