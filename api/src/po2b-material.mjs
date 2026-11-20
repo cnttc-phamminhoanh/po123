@@ -577,7 +577,7 @@ JOIN pur_in2 i WITH (NOLOCK)
 JOIN pur_in1 i1 WITH (NOLOCK)
     ON i1.sheet_no = i.sheet_no
     AND i1.sheet_sta = '1'
-    AND i1.sheet_type IN ('PIGI', 'PTGI', 'PTGIA')
+    AND i1.sheet_type IN ('PIGI')
 LEFT JOIN bas_cur_acc u WITH (NOLOCK)
     ON u.cur_code = 'USD'
     AND u.acc_period = i1.acc_period
@@ -696,7 +696,7 @@ JOIN pur_in2 i WITH (NOLOCK)
 JOIN pur_in1 i1 WITH (NOLOCK)
     ON i1.sheet_no = i.sheet_no
     AND i1.sheet_sta = '1'
-    AND i1.sheet_type IN ('PIGI', 'PTGI', 'PTGIA')
+    AND i1.sheet_type IN ('PIGI')
 LEFT JOIN bas_cur_acc u WITH (NOLOCK)
     ON u.cur_code = 'USD'
     AND u.acc_period = i1.acc_period
