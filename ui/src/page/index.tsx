@@ -31,6 +31,10 @@ type UploadKind = 'single' | 'bulk';
 /** Mã hàng mở màn mặc định. */
 const DEFAULT_STYLE_CODE = '1W390910';
 
+/** Giá trị đại diện cho season SO NULL trong ô chọn (Select không nhận value rỗng). */
+const SO_SEASON_NULL = '__NULL__';
+const soSeasonSelectValue = (value: string) => value || SO_SEASON_NULL;
+
 const avatarLabel = (name: string, code: string): string => {
   const source = name.trim() || code.trim();
   if (!source) return '?';
@@ -112,7 +116,11 @@ const PoSummaryPage = () => {
   const activeSeason: string = draftSeason || detail?.season || '';
   const seasonOptions: string[] = detail?.seasons ?? [];
   const soSeasonOptions: string[] = detail?.soSeasons ?? [];
-  const activeSoSeason: string = draftSoSeason || detail?.soSeason || '';
+  const activeSoSeason: string =
+    draftSoSeason ||
+    (soSeasonOptions.includes(detail?.soSeason ?? '')
+      ? soSeasonSelectValue(detail?.soSeason ?? '')
+      : '');
   const showSoSeason = soSeasonOptions.length > 1;
   const sizeGroupOptions: string[] = detail?.sizeGroups ?? [];
   const appliedSizeGroup: string =
@@ -470,8 +478,8 @@ const PoSummaryPage = () => {
                 </SelectTrigger>
                 <SelectContent className="rounded-[8px]">
                   {soSeasonOptions.map((option: string) => (
-                    <SelectItem key={option} value={option}>
-                      {option}
+                    <SelectItem key={option || SO_SEASON_NULL} value={soSeasonSelectValue(option)}>
+                      {option || t('soSeasonNull')}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -487,12 +495,18 @@ const PoSummaryPage = () => {
             />
           ) : null}
         </div>
-        {detail?.seasonMismatch ? (
+        {detail?.soSeasonMissing ? (
+          <div className="season-note-row">
+            <div className="season-note" role="status">
+              {t('soSeasonMissingNote')}
+            </div>
+          </div>
+        ) : detail?.seasonMismatch ? (
           <div className="season-note-row">
             <div className="season-note" role="status">
               {t('seasonMismatchNote', {
                 quoteSeason: detail.season,
-                soSeason: detail.soSeason ?? '',
+                soSeason: detail.soSeason || t('soSeasonNull'),
               })}
             </div>
           </div>

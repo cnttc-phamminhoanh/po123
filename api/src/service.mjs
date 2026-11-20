@@ -383,13 +383,18 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam, soSeasonParam)
   const cost = costRows[0];
 
   const soSeasons = [
-    ...new Set(soSeasonRows.map((row) => toText(row.season)).filter(Boolean)),
+    ...new Set(soSeasonRows.map((row) => toText(row.season))),
   ];
-  const requestedSoSeason = toText(soSeasonParam);
+  const requestedSoSeasonRaw = toText(soSeasonParam);
+  const requestedNullSoSeason = requestedSoSeasonRaw === '__NULL__';
+  const requestedSoSeason = requestedNullSoSeason ? '' : requestedSoSeasonRaw;
   let soSeason = season;
   let soSeasonNeedsChoice = false;
 
-  if (requestedSoSeason && soSeasons.includes(requestedSoSeason)) {
+  if (requestedNullSoSeason) {
+    // Người dùng chủ động chọn nhóm SO không có season.
+    soSeason = '';
+  } else if (requestedSoSeason && soSeasons.includes(requestedSoSeason)) {
     // Người dùng đã chọn season SO cụ thể.
     soSeason = requestedSoSeason;
   } else if (soSeasons.includes(season)) {
@@ -405,6 +410,7 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam, soSeasonParam)
     soSeasonNeedsChoice = true;
   }
 
+  const soSeasonMissing = !soSeason;
   const seasonMismatch = Boolean(soSeason && season && soSeason !== season);
 
   const [qtyRows, materialRows, po2bRows, po3Rows, po3LaborRows, po3PriceRows] = await Promise.all([
@@ -631,6 +637,7 @@ const loadStyleDetail = async (code, seasonParam, sizeGroupParam, soSeasonParam)
     soSeason,
     soSeasons,
     seasonMismatch,
+    soSeasonMissing,
     soSeasonNeedsChoice,
     latestSeason: season,
     fabric: '',

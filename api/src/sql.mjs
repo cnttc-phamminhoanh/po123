@@ -118,7 +118,7 @@ WHERE s1.sheet_type IN ('SOGI', 'SOCGI')
       AND REPLACE(g.bar_no, ' ', '') = REPLACE(@style, ' ', '')
     )
   )
-  AND NULLIF(LTRIM(RTRIM(ISNULL(g.goods_model, ''))), '') IS NOT NULL
+  /* Giữ cả SO có season NULL/trống để PO2A/PO2B/PO3 vẫn tính được. */
 GROUP BY LTRIM(RTRIM(ISNULL(g.goods_model, '')))
 ORDER BY last_sheet_date DESC, season DESC
 `;

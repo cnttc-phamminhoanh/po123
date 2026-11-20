@@ -93,6 +93,9 @@ export const translations = {
     quoteSeason: 'Quote season',
     soSeason: 'SO season',
     selectSoSeason: 'Select SO season',
+    soSeasonNull: 'No season (NULL)',
+    soSeasonMissingNote:
+      'SO season is empty (NULL). PO2/3 still use the SOs without a season.',
     seasonMismatchNote:
       'PO1 season: {quoteSeason}. PO2/3 season: {soSeason} - PO2/PO3 data follows the PO2/3 season.',
     selectStyle: 'Select style',
@@ -370,6 +373,9 @@ export const translations = {
     quoteSeason: 'Mùa báo giá',
     soSeason: 'Mùa SO',
     selectSoSeason: 'Chọn mùa SO',
+    soSeasonNull: 'Không có mùa (NULL)',
+    soSeasonMissingNote:
+      'Mùa SO đang trống (NULL). PO2/3 vẫn tính theo các SO không có mùa.',
     seasonMismatchNote:
       'Mùa PO1: {quoteSeason}. Mùa PO2/3: {soSeason} - dữ liệu PO2/PO3 đang theo mùa PO2/3.',
     selectStyle: 'Chọn mã hàng',
@@ -642,6 +648,9 @@ export const translations = {
     quoteSeason: '报价季节',
     soSeason: 'SO 季节',
     selectSoSeason: '选择 SO 季节',
+    soSeasonNull: '无季节（NULL）',
+    soSeasonMissingNote:
+      'SO 季节为空（NULL）。PO2/3 仍按无季节的 SO 计算。',
     seasonMismatchNote:
       'PO1 季节：{quoteSeason}。PO2/3 季节：{soSeason} - PO2/PO3 数据按 PO2/3 季节。',
     selectStyle: '选择款号',

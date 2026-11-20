@@ -177,6 +177,7 @@ export interface StyleDetail {
   soSeason?: string;
   soSeasons?: string[];
   seasonMismatch?: boolean;
+  soSeasonMissing?: boolean;
   soSeasonNeedsChoice?: boolean;
   latestSeason?: string;
   fabric: string;
